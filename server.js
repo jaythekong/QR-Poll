@@ -104,7 +104,53 @@ function resetPoll(reloadConfig) {
   deviceVotes.clear();
 }
 
+// ---------------------------------------------------------------------------
+// Activity log (in-memory; resets on restart, like the vote state)
+//   - sessions: one record per open→close voting session
+//   - changes:  each retraction / vote change, capturing "from → to"
+// ---------------------------------------------------------------------------
+const LOG_CAP = 200;
+const sessions = [];
+let currentSession = null;
+const changes = [];
+const pendingChange = new Map(); // deviceId -> change record awaiting its "to"
+
+function totalVotes() {
+  return poll.options.reduce((sum, o) => sum + o.votes, 0);
+}
+function tallySnapshot() {
+  return poll.options.map((o) => ({ label: o.label, votes: o.votes }));
+}
+function openSession() {
+  currentSession = {
+    opened: Date.now(),
+    closed: null,
+    question: poll.question,
+    openTotal: totalVotes(),
+    cast: 0, // gross votes cast during this session
+    closeTotal: null,
+    tally: tallySnapshot()
+  };
+  sessions.push(currentSession);
+  if (sessions.length > LOG_CAP) sessions.shift();
+}
+function closeSession() {
+  if (currentSession && currentSession.closed == null) {
+    currentSession.closed = Date.now();
+    currentSession.closeTotal = totalVotes();
+    currentSession.tally = tallySnapshot();
+  }
+}
+// Record a retraction. The "to" is filled in later if the device re-votes.
+function logChange(fromLabel, deviceId) {
+  const change = { from: fromLabel, to: null, at: Date.now() };
+  changes.push(change);
+  if (changes.length > LOG_CAP) changes.shift();
+  pendingChange.set(deviceId, change);
+}
+
 resetPoll(true);
+openSession(); // the app boots with voting open — start the first session
 
 function publicState() {
   const total = poll.options.reduce((sum, o) => sum + o.votes, 0);
@@ -200,6 +246,26 @@ app.get('/api/config', (_req, res) => {
   }
 });
 
+// Activity log for the admin view: voting sessions + vote changes. This is
+// aggregate, non-identifying data (same visibility as the public results), so
+// it isn't behind the passcode.
+app.get('/api/log', (_req, res) => {
+  const liveTotal = totalVotes();
+  res.json({
+    open,
+    now: Date.now(),
+    sessions: sessions.map((s) => ({
+      opened: s.opened,
+      closed: s.closed,
+      question: s.question,
+      votes: s.cast, // gross votes cast during the session
+      total: s.closed != null ? s.closeTotal : liveTotal,
+      tally: s.closed != null ? s.tally : tallySnapshot()
+    })),
+    changes: changes.map((c) => ({ from: c.from, to: c.to, at: c.at }))
+  });
+});
+
 // Save a new poll definition from the admin page, then start a fresh round.
 app.post('/api/config', requireAdmin, (req, res) => {
   const body = req.body || {};
@@ -224,8 +290,11 @@ app.post('/api/config', requireAdmin, (req, res) => {
     return res.status(500).json({ error: 'write_failed' });
   }
 
+  closeSession(); // the previous poll's session ends here
   resetPoll(true); // reload the freshly written config and zero the counts
+  pendingChange.clear();
   open = true;
+  openSession(); // start a session for the new poll
   broadcast();
   res.json({ ok: true, config: next });
 });
@@ -314,6 +383,13 @@ io.on('connection', (socket) => {
 
     option.votes += 1;
     deviceVotes.set(deviceId, option.id);
+    if (currentSession) currentSession.cast += 1;
+    // If this vote completes a cancel→re-vote, record where they landed.
+    const pend = pendingChange.get(deviceId);
+    if (pend) {
+      pend.to = option.label;
+      pendingChange.delete(deviceId);
+    }
     reply({ ok: true, optionId: option.id });
     broadcast(); // F3 — live update to the big screen
   });
@@ -329,6 +405,7 @@ io.on('connection', (socket) => {
     const option = poll.options.find((o) => o.id === prevId);
     if (option && option.votes > 0) option.votes -= 1;
     deviceVotes.delete(deviceId);
+    logChange(option ? option.label : String(prevId), deviceId);
     reply({ ok: true });
     broadcast();
   });
@@ -337,18 +414,27 @@ io.on('connection', (socket) => {
   // so an audience member who opens the host URL can't drive the poll.
   socket.on('host:open', (payload) => {
     if (!socketIsAdmin(payload)) return;
-    open = true;
+    if (!open) {
+      open = true;
+      openSession(); // begin a new voting session
+    }
     broadcast();
   });
   socket.on('host:close', (payload) => {
     if (!socketIsAdmin(payload)) return;
-    open = false;
+    if (open) {
+      open = false;
+      closeSession(); // end the session, snapshotting its final tally
+    }
     broadcast();
   });
   socket.on('host:reset', (payload) => {
     if (!socketIsAdmin(payload)) return;
+    closeSession(); // end the current session before clearing counts
     resetPoll(true); // reload config so edited question/options take effect
+    pendingChange.clear();
     open = true;
+    openSession(); // start a fresh session for the reset poll
     broadcast();
   });
 });

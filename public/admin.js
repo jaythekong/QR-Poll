@@ -219,6 +219,89 @@ $('#form').addEventListener('submit', async (e) => {
   }
 });
 
+// --- activity log ----------------------------------------------------------
+
+function escapeText(s) {
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : String(s);
+  return d.innerHTML;
+}
+function fmtTime(ms) {
+  return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+function fmtDuration(a, b) {
+  const s = Math.max(0, Math.round((b - a) / 1000));
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  return m + 'm ' + (s % 60) + 's';
+}
+
+function renderLog(data) {
+  const now = data.now || Date.now();
+
+  // Summary
+  const totalCast = data.sessions.reduce((sum, s) => sum + (s.votes || 0), 0);
+  const retracted = data.changes.length;
+  const switched = data.changes.filter((c) => c.to && c.to !== c.from).length;
+  $('#logSummary').innerHTML =
+    `<span><b>${data.sessions.length}</b> session${data.sessions.length === 1 ? '' : 's'}</span>` +
+    `<span><b>${totalCast}</b> votes cast</span>` +
+    `<span><b>${retracted}</b> retraction${retracted === 1 ? '' : 's'}</span>` +
+    `<span><b>${switched}</b> vote change${switched === 1 ? '' : 's'}</span>`;
+
+  // Sessions (newest first)
+  $('#sessionCount').textContent = `(${data.sessions.length})`;
+  const sessions = [...data.sessions].reverse();
+  $('#logSessions').innerHTML = sessions.length
+    ? sessions
+        .map((s, i) => {
+          const n = data.sessions.length - i;
+          const live = s.closed == null;
+          const when = live
+            ? `Opened ${fmtTime(s.opened)} · <span class="live-tag">open now</span>`
+            : `${fmtTime(s.opened)} – ${fmtTime(s.closed)} · ${fmtDuration(s.opened, s.closed)}`;
+          const tally = s.tally
+            .filter((t) => t.votes > 0)
+            .map((t) => `${escapeText(t.label)} ${t.votes}`)
+            .join(' · ') || '—';
+          return `<div class="log-row">
+            <div class="log-row-top"><b>Session ${n}</b> <span class="muted">${when}</span></div>
+            <div class="log-q">${escapeText(s.question)}</div>
+            <div class="log-stats"><span class="chip">${s.votes} cast</span> <span class="tally">${tally}</span></div>
+          </div>`;
+        })
+        .join('')
+    : '<div class="log-empty">No sessions yet.</div>';
+
+  // Changes (newest first)
+  $('#changeCount').textContent = `(${data.changes.length})`;
+  const chg = [...data.changes].reverse();
+  $('#logChanges').innerHTML = chg.length
+    ? chg
+        .map((c) => {
+          const to = c.to
+            ? `<b>${escapeText(c.to)}</b>`
+            : `<span class="muted">retracted (no new vote)</span>`;
+          return `<div class="log-row log-change">
+            <span class="muted">${fmtTime(c.at)}</span>
+            <span><b>${escapeText(c.from)}</b> → ${to}</span>
+          </div>`;
+        })
+        .join('')
+    : '<div class="log-empty">No vote changes yet.</div>';
+}
+
+async function fetchLog() {
+  try {
+    const data = await (await fetch('/api/log')).json();
+    renderLog(data);
+  } catch {
+    /* transient — the next refresh will retry */
+  }
+}
+
+$('#logRefresh').addEventListener('click', fetchLog);
+
 // Discover whether a passcode is required, then load the current poll. We
 // prompt for the passcode up front so editing feels unlocked, not blocked.
 async function init() {
@@ -226,6 +309,8 @@ async function init() {
     authRequired = (await (await fetch('/api/auth-status')).json()).required;
   } catch { authRequired = false; }
   await load();
+  fetchLog();
+  setInterval(fetchLog, 5000); // keep the activity log live
   if (authRequired && !token()) ensureAuth();
 }
 

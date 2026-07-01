@@ -102,3 +102,54 @@ input[type="text"]::placeholder { color: #6b7494; }
   .option-row .opt-upload, .option-row .opt-remove { grid-row: 2; }
   .logo-row { flex-direction: column; align-items: flex-start; }
 }
+
+/* ------------------------------- Activity log ------------------------------ */
+
+.log-card { margin-top: 22px; gap: 14px; }
+.log-head { display: flex; align-items: center; justify-content: space-between; }
+.log-head h2 { margin: 0; font-size: 22px; }
+.log-head .btn { padding: 8px 14px; font-size: 14px; }
+.log-note { margin: -6px 0 0; color: var(--muted); font-size: 13px; }
+.muted { color: var(--muted); font-weight: 500; }
+
+.log-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.log-summary span {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.log-summary b { color: var(--ink); font-size: 18px; margin-right: 4px; font-variant-numeric: tabular-nums; }
+
+.log-h { font-size: 14px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); margin: 8px 0 0; }
+
+.log-list { display: grid; gap: 8px; max-height: 320px; overflow-y: auto; }
+.log-row {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 14px;
+}
+.log-row-top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.log-q { color: var(--muted); margin: 4px 0 8px; }
+.log-stats { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.chip {
+  background: var(--bar-grad, var(--accent));
+  color: #fff;
+  border-radius: 999px;
+  padding: 3px 12px;
+  font-weight: 700;
+  font-size: 13px;
+}
+.tally { color: var(--muted); font-variant-numeric: tabular-nums; }
+.live-tag { color: var(--good); font-weight: 700; }
+
+.log-change { display: flex; align-items: center; gap: 12px; }
+.log-empty { color: var(--muted); font-size: 14px; padding: 6px 2px; }

@@ -53,6 +53,23 @@
         <button type="submit" class="btn primary" id="saveBtn">Save & start poll</button>
       </div>
     </form>
+
+    <!-- Activity log -->
+    <section class="card log-card">
+      <div class="log-head">
+        <h2>Activity log</h2>
+        <button type="button" class="btn ghost" id="logRefresh">Refresh</button>
+      </div>
+      <p class="log-note">Resets when the server restarts (e.g. a redeploy), same as vote counts.</p>
+
+      <div class="log-summary" id="logSummary"></div>
+
+      <h3 class="log-h">Voting sessions <span class="muted" id="sessionCount"></span></h3>
+      <div id="logSessions" class="log-list"></div>
+
+      <h3 class="log-h">Vote changes &amp; retractions <span class="muted" id="changeCount"></span></h3>
+      <div id="logChanges" class="log-list"></div>
+    </section>
   </main>
 
   <!-- Template for one option row -->
