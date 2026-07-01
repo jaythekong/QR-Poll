@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Live Poll — Admin</title>
+  <link rel="icon" href="/logo.svg" />
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/admin.css" />
+</head>
+<body>
+  <main class="admin">
+    <header class="admin-head">
+      <img class="logo" id="brandLogo" src="/logo.svg" alt="Logo" />
+      <div class="admin-head-right">
+        <a class="btn ghost" href="/" target="_blank">Open big screen ↗</a>
+        <a class="btn ghost" href="/vote" target="_blank">Open voter page ↗</a>
+      </div>
+    </header>
+
+    <h1 class="admin-title">Set up your poll</h1>
+    <p class="admin-sub">Add an icon and a name for the poll and for each option. Saving starts a fresh round and updates every connected screen live.</p>
+
+    <form id="form" class="card">
+      <!-- Poll logo + question -->
+      <div class="field">
+        <label>Poll logo</label>
+        <div class="logo-row">
+          <div class="logo-preview" id="logoPreview"><img id="logoImg" src="/logo.svg" alt="" /></div>
+          <div class="logo-actions">
+            <input type="file" id="logoFile" accept="image/*" hidden />
+            <button type="button" class="btn" id="logoUploadBtn">Upload image</button>
+            <button type="button" class="btn ghost" id="logoResetBtn">Use default</button>
+            <p class="hint">PNG, JPG, SVG, GIF or WEBP.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="question">Poll name / question</label>
+        <input type="text" id="question" placeholder="e.g. Which model do you prefer?" maxlength="160" />
+      </div>
+
+      <!-- Options -->
+      <div class="field">
+        <label>Options</label>
+        <div id="optionList" class="option-rows"></div>
+        <button type="button" class="btn ghost add" id="addOption">+ Add option</button>
+      </div>
+
+      <div class="actions-bar">
+        <span class="save-msg" id="msg"></span>
+        <button type="submit" class="btn primary" id="saveBtn">Save & start poll</button>
+      </div>
+    </form>
+  </main>
+
+  <!-- Template for one option row -->
+  <template id="optionTpl">
+    <div class="option-row">
+      <button type="button" class="icon-btn" title="Set icon">
+        <span class="icon-preview"></span>
+      </button>
+      <input type="text" class="opt-icon" maxlength="8" placeholder="🙂 / leave blank" />
+      <input type="text" class="opt-label" placeholder="Option name" maxlength="80" />
+      <input type="file" class="opt-file" accept="image/*" hidden />
+      <button type="button" class="btn ghost opt-upload" title="Upload image icon">🖼️</button>
+      <button type="button" class="btn ghost opt-remove" title="Remove">✕</button>
+    </div>
+  </template>
+
+  <script src="/admin.js"></script>
+</body>
+</html>

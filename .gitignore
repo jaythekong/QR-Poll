@@ -1,0 +1,10 @@
+node_modules/
+npm-debug.log*
+.DS_Store
+.env
+*.log
+
+# NOTE: public/uploads/ is intentionally NOT ignored — the logos/icons referenced
+# by poll.config.json live there and must ship with the deploy. (Images uploaded
+# via /admin on the live server are written to ephemeral disk and are lost on the
+# next redeploy — see DEPLOY.md.)

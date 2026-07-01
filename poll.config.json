@@ -1,0 +1,26 @@
+{
+  "logo": "/uploads/1782826190600_piqxt4.png",
+  "question": "Which Ai tool do you USE?",
+  "options": [
+    {
+      "label": "ChatGPT",
+      "icon": "/uploads/1782825896900_g7ib2n.png"
+    },
+    {
+      "label": "Gemini",
+      "icon": "/uploads/1782825925447_06x3rb.jpg"
+    },
+    {
+      "label": "Claude",
+      "icon": "/uploads/1782825962874_s2wnh2.png"
+    },
+    {
+      "label": "Copilot",
+      "icon": "/uploads/1782826025786_p5ljwk.jpg"
+    },
+    {
+      "label": "Others",
+      "icon": "/uploads/1782826125512_n9ymy6.png"
+    }
+  ]
+}

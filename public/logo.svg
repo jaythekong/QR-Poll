@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 48" role="img" aria-label="LivePoll">
+  <g fill="none" fill-rule="evenodd">
+    <rect x="2" y="10" width="6" height="28" rx="3" fill="#6366f1"/>
+    <rect x="13" y="2" width="6" height="36" rx="3" fill="#8b5cf6"/>
+    <rect x="24" y="18" width="6" height="20" rx="3" fill="#ec4899"/>
+    <text x="42" y="33" font-family="Inter, system-ui, sans-serif" font-size="26" font-weight="700" fill="currentColor">LivePoll</text>
+  </g>
+</svg>

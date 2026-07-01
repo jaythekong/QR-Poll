@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Live Poll — Host</title>
+  <link rel="icon" href="/logo.svg" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="host">
+    <header>
+      <img class="logo" id="logo" src="/logo.svg" alt="Logo" />
+      <span class="pill live" id="status"><span class="dot"></span><span id="statusText">Live</span></span>
+    </header>
+
+    <section class="stage">
+      <div>
+        <h1 class="question" id="question">Loading poll…</h1>
+        <div class="bars" id="bars"></div>
+      </div>
+
+      <aside class="qr-card">
+        <img id="qr" alt="Scan to vote" />
+        <div class="scan">Scan to vote</div>
+        <div class="url" id="url"></div>
+      </aside>
+    </section>
+
+    <footer>
+      <div class="footer-stats">
+        <div class="total">Total votes: <b id="total">0</b></div>
+        <div class="viewers" id="viewers" title="People viewing right now">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+          <b id="viewerCount">0</b> watching
+        </div>
+      </div>
+      <div class="controls">
+        <button class="btn primary hidden" id="unlockBtn">Unlock controls</button>
+        <button class="btn ghost" id="resetBtn">Reset</button>
+        <button class="btn" id="closeBtn">Close voting</button>
+        <button class="btn primary hidden" id="openBtn">Open voting</button>
+      </div>
+    </footer>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/host.js"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "name": "qr-poll",
+  "version": "1.0.0",
+  "description": "Live QR polling screen — host displays a poll, attendees scan a QR code and vote, results update live.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.7.5"
+  }
+}

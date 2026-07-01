@@ -1,0 +1,20 @@
+# Render blueprint — deploy this repo as one always-on web service.
+# Render injects PORT and RENDER_EXTERNAL_URL automatically; the server uses
+# RENDER_EXTERNAL_URL for the QR/voter link, so no manual URL config is needed.
+services:
+  - type: web
+    name: qr-poll
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    healthCheckPath: /
+    envVars:
+      # Passcode for poll edits + host controls. Optional: the app defaults to
+      # the built-in passcode ("firstwave") when this is blank, so the gate is
+      # always on. sync:false makes Render prompt for a value at deploy time —
+      # set one here (kept out of the repo) if you want a private passcode,
+      # especially when the GitHub repo is public.
+      - key: ADMIN_PASSCODE
+        sync: false
