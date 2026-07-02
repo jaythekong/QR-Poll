@@ -151,5 +151,32 @@ input[type="text"]::placeholder { color: #6b7494; }
 .tally { color: var(--muted); font-variant-numeric: tabular-nums; }
 .live-tag { color: var(--good); font-weight: 700; }
 
-.log-change { display: flex; align-items: center; gap: 12px; }
 .log-empty { color: var(--muted); font-size: 14px; padding: 6px 2px; }
+
+/* Per-session changes nested inside a session card */
+.session-changes-label {
+  margin-top: 12px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  font-weight: 700;
+}
+.session-changes {
+  margin-top: 6px;
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+.session-changes.empty {
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+}
+.chg-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+}

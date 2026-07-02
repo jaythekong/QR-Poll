@@ -112,7 +112,6 @@ function resetPoll(reloadConfig) {
 const LOG_CAP = 200;
 const sessions = [];
 let currentSession = null;
-const changes = [];
 const pendingChange = new Map(); // deviceId -> change record awaiting its "to"
 
 function totalVotes() {
@@ -129,7 +128,8 @@ function openSession() {
     openTotal: totalVotes(),
     cast: 0, // gross votes cast during this session
     closeTotal: null,
-    tally: tallySnapshot()
+    tally: tallySnapshot(),
+    changes: [] // retractions / vote changes that happen during this session
   };
   sessions.push(currentSession);
   if (sessions.length > LOG_CAP) sessions.shift();
@@ -141,11 +141,13 @@ function closeSession() {
     currentSession.tally = tallySnapshot();
   }
 }
-// Record a retraction. The "to" is filled in later if the device re-votes.
+// Record a retraction against the CURRENT session. The "to" is filled in later
+// if the device re-votes (while the same session is still active).
 function logChange(fromLabel, deviceId) {
+  if (!currentSession) return;
   const change = { from: fromLabel, to: null, at: Date.now() };
-  changes.push(change);
-  if (changes.length > LOG_CAP) changes.shift();
+  currentSession.changes.push(change);
+  if (currentSession.changes.length > LOG_CAP) currentSession.changes.shift();
   pendingChange.set(deviceId, change);
 }
 
@@ -260,9 +262,9 @@ app.get('/api/log', (_req, res) => {
       question: s.question,
       votes: s.cast, // gross votes cast during the session
       total: s.closed != null ? s.closeTotal : liveTotal,
-      tally: s.closed != null ? s.tally : tallySnapshot()
-    })),
-    changes: changes.map((c) => ({ from: c.from, to: c.to, at: c.at }))
+      tally: s.closed != null ? s.tally : tallySnapshot(),
+      changes: s.changes.map((c) => ({ from: c.from, to: c.to, at: c.at }))
+    }))
   });
 });
 

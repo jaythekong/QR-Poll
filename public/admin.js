@@ -236,26 +236,39 @@ function fmtDuration(a, b) {
   return m + 'm ' + (s % 60) + 's';
 }
 
-function renderLog(data) {
-  const now = data.now || Date.now();
+function changeRow(c) {
+  const to = c.to
+    ? `<b>${escapeText(c.to)}</b>`
+    : `<span class="muted">retracted (no new vote)</span>`;
+  return `<div class="chg-row">
+    <span class="muted">${fmtTime(c.at)}</span>
+    <span><b>${escapeText(c.from)}</b> → ${to}</span>
+  </div>`;
+}
 
-  // Summary
-  const totalCast = data.sessions.reduce((sum, s) => sum + (s.votes || 0), 0);
-  const retracted = data.changes.length;
-  const switched = data.changes.filter((c) => c.to && c.to !== c.from).length;
+function renderLog(data) {
+  const sessions = data.sessions;
+
+  // Summary — aggregated across every session's own changes.
+  const totalCast = sessions.reduce((sum, s) => sum + (s.votes || 0), 0);
+  const retracted = sessions.reduce((sum, s) => sum + s.changes.length, 0);
+  const switched = sessions.reduce(
+    (sum, s) => sum + s.changes.filter((c) => c.to && c.to !== c.from).length,
+    0
+  );
   $('#logSummary').innerHTML =
-    `<span><b>${data.sessions.length}</b> session${data.sessions.length === 1 ? '' : 's'}</span>` +
+    `<span><b>${sessions.length}</b> session${sessions.length === 1 ? '' : 's'}</span>` +
     `<span><b>${totalCast}</b> votes cast</span>` +
     `<span><b>${retracted}</b> retraction${retracted === 1 ? '' : 's'}</span>` +
     `<span><b>${switched}</b> vote change${switched === 1 ? '' : 's'}</span>`;
 
-  // Sessions (newest first)
-  $('#sessionCount').textContent = `(${data.sessions.length})`;
-  const sessions = [...data.sessions].reverse();
-  $('#logSessions').innerHTML = sessions.length
-    ? sessions
+  // Sessions (newest first), each with its OWN changes/retractions nested inside.
+  $('#sessionCount').textContent = `(${sessions.length})`;
+  const rev = [...sessions].reverse();
+  $('#logSessions').innerHTML = rev.length
+    ? rev
         .map((s, i) => {
-          const n = data.sessions.length - i;
+          const n = sessions.length - i;
           const live = s.closed == null;
           const when = live
             ? `Opened ${fmtTime(s.opened)} · <span class="live-tag">open now</span>`
@@ -264,31 +277,20 @@ function renderLog(data) {
             .filter((t) => t.votes > 0)
             .map((t) => `${escapeText(t.label)} ${t.votes}`)
             .join(' · ') || '—';
+          const chg = [...s.changes].reverse();
+          const changesBlock = chg.length
+            ? `<div class="session-changes">${chg.map(changeRow).join('')}</div>`
+            : `<div class="session-changes empty">No vote changes this session</div>`;
           return `<div class="log-row">
             <div class="log-row-top"><b>Session ${n}</b> <span class="muted">${when}</span></div>
             <div class="log-q">${escapeText(s.question)}</div>
             <div class="log-stats"><span class="chip">${s.votes} cast</span> <span class="tally">${tally}</span></div>
+            <div class="session-changes-label">Changes &amp; retractions (${s.changes.length})</div>
+            ${changesBlock}
           </div>`;
         })
         .join('')
     : '<div class="log-empty">No sessions yet.</div>';
-
-  // Changes (newest first)
-  $('#changeCount').textContent = `(${data.changes.length})`;
-  const chg = [...data.changes].reverse();
-  $('#logChanges').innerHTML = chg.length
-    ? chg
-        .map((c) => {
-          const to = c.to
-            ? `<b>${escapeText(c.to)}</b>`
-            : `<span class="muted">retracted (no new vote)</span>`;
-          return `<div class="log-row log-change">
-            <span class="muted">${fmtTime(c.at)}</span>
-            <span><b>${escapeText(c.from)}</b> → ${to}</span>
-          </div>`;
-        })
-        .join('')
-    : '<div class="log-empty">No vote changes yet.</div>';
 }
 
 async function fetchLog() {
