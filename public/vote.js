@@ -10,6 +10,9 @@ const el = {
   thanksView: document.getElementById('thanksView'),
   revoteView: document.getElementById('revoteView'),
   closedBanner: document.getElementById('closedBanner'),
+  waitBanner: document.getElementById('waitBanner'),
+  timeBanner: document.getElementById('timeBanner'),
+  timeLeft: document.getElementById('timeLeft'),
   question: document.getElementById('question'),
   options: document.getElementById('options'),
   pick: document.getElementById('pick'),
@@ -18,6 +21,11 @@ const el = {
   changeBtn: document.getElementById('changeBtn'),
   revoteYes: document.getElementById('revoteYes'),
   revoteNo: document.getElementById('revoteNo'),
+  followView: document.getElementById('followView'),
+  followTag: document.getElementById('followTag'),
+  followQuestion: document.getElementById('followQuestion'),
+  followOptions: document.getElementById('followOptions'),
+  followSkip: document.getElementById('followSkip'),
   viewers: document.getElementById('viewers'),
   viewerCount: document.getElementById('viewerCount')
 };
@@ -38,6 +46,8 @@ if (!deviceId) {
 
 let isOpen = true;
 let voted = false; // has this device voted in the *current* poll round
+let followIdx = 0; // which follow-up question this device is on (this round)
+let followBusy = false; // guard against double-tapping a follow-up option
 let myVoteId = null; // the option this device voted for (for re-vote/confirm)
 const labels = new Map(); // optionId -> label
 
@@ -45,11 +55,50 @@ function labelFor(optionId) {
   return labels.get(optionId) || labels.get(localStorage.getItem('qrpoll_voted')) || '';
 }
 
-// Show exactly one of the three screens.
+// Show exactly one of the screens.
 function showView(name) {
   el.voteView.classList.toggle('hidden', name !== 'vote');
   el.thanksView.classList.toggle('hidden', name !== 'thanks');
   el.revoteView.classList.toggle('hidden', name !== 'revote');
+  el.followView.classList.toggle('hidden', name !== 'follow');
+}
+
+// Walk through the follow-up questions in order; thanks screen at the end.
+function nextFollowUp() {
+  const fus = (lastState && lastState.followUps) || [];
+  if (followIdx < fus.length) showFollowUp(fus, followIdx);
+  else showThanks(myVoteId);
+}
+
+function showFollowUp(fus, i) {
+  const fu = fus[i];
+  el.followTag.textContent =
+    fus.length > 1
+      ? `✓ Vote counted · question ${i + 2} of ${fus.length + 1}`
+      : '✓ Vote counted · one more quick question';
+  el.followQuestion.textContent = fu.question;
+  el.followOptions.innerHTML = '';
+  followBusy = false;
+  for (const o of fu.options) {
+    const btn = document.createElement('button');
+    btn.className = 'option';
+    btn.innerHTML = `${iconHtml(o.icon)}<span>${escapeHtml(o.label)}</span>
+      <span class="tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>`;
+    btn.addEventListener('click', () => castFollowVote(o.id, btn));
+    el.followOptions.appendChild(btn);
+  }
+  showView('follow');
+}
+
+function castFollowVote(optionId, btn) {
+  if (followBusy) return;
+  followBusy = true;
+  [...el.followOptions.children].forEach((b) => (b.disabled = true));
+  btn.classList.add('chosen');
+  socket.emit('followVote', { fuIndex: followIdx, optionId, deviceId }, () => {
+    followIdx += 1;
+    setTimeout(nextFollowUp, 280);
+  });
 }
 
 function showThanks(optionId) {
@@ -90,7 +139,8 @@ function castVote(optionId, btn) {
   socket.emit('vote', { optionId, deviceId }, (res) => {
     if (res && res.ok) {
       localStorage.setItem('qrpoll_voted', optionId);
-      setTimeout(() => showThanks(optionId), 280);
+      myVoteId = optionId;
+      setTimeout(nextFollowUp, 280); // follow-up questions first, thanks after
     } else if (res && res.reason === 'already_voted') {
       // This device already has a vote on record → offer to cancel & re-vote.
       btn.classList.remove('chosen');
@@ -136,6 +186,10 @@ function cancelVote() {
 el.changeBtn.addEventListener('click', () => showRevote(myVoteId));
 el.revoteYes.addEventListener('click', cancelVote);
 el.revoteNo.addEventListener('click', () => showThanks(myVoteId));
+el.followSkip.addEventListener('click', () => {
+  followIdx += 1; // skip just this question, then continue the sequence
+  nextFollowUp();
+});
 
 let lastState = null;
 function applyState() {
@@ -146,14 +200,22 @@ function applyState() {
   if (el.logo.getAttribute('src') !== s.logo) el.logo.src = s.logo;
   el.question.textContent = s.question;
 
-  el.status.className = 'pill ' + (s.open ? 'live' : 'closed');
-  el.statusText.textContent = s.open ? 'Open' : 'Closed';
-  el.closedBanner.classList.toggle('hidden', s.open);
+  const phase = s.phase || (s.open ? 'open' : 'closed');
+  el.status.className = 'pill ' + (phase === 'open' ? 'live' : phase === 'closed' ? 'closed' : '');
+  el.statusText.textContent = phase === 'open' ? 'Open' : phase === 'standby' ? 'Not started' : 'Closed';
+  el.waitBanner.classList.toggle('hidden', phase !== 'standby');
+  el.closedBanner.classList.toggle('hidden', phase !== 'closed');
+
+  // Countdown for timed polls (mirrors the big screen's clock).
+  clockRef = { phase, endsAt: s.endsAt };
+  serverOffset = (s.now || Date.now()) - Date.now();
+  tickTimeLeft();
 
   // Rebuild option buttons if the set changed (poll reset to new options).
   const ids = s.options.map((o) => o.id).join(',');
   if (ids !== [...labels.keys()].join(',')) {
     voted = false; // new round
+    followIdx = 0;
     buildOptions(s.options);
   } else {
     [...el.options.children].forEach((b) => (b.disabled = !isOpen || voted));
@@ -164,6 +226,22 @@ socket.on('state', (s) => {
   lastState = s;
   if (!voted) applyState();
 });
+
+// --- countdown for timed polls ----------------------------------------------
+let clockRef = { phase: 'standby', endsAt: null };
+let serverOffset = 0;
+
+function tickTimeLeft() {
+  if (clockRef.phase !== 'open' || !clockRef.endsAt) {
+    el.timeBanner.classList.add('hidden');
+    return;
+  }
+  const left = Math.max(0, clockRef.endsAt - (Date.now() + serverOffset));
+  const secs = Math.round(left / 1000);
+  el.timeLeft.textContent = Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0');
+  el.timeBanner.classList.remove('hidden');
+}
+setInterval(tickTimeLeft, 500);
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({

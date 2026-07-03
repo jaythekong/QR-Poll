@@ -145,6 +145,26 @@ html, body {
   background: #fff;
   padding: 12px;
 }
+.qr-wait {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  min-height: 280px;
+  padding: 20px 8px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 19px;
+}
+.qr-wait-icon {
+  width: 74px; height: 74px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 26px;
+  color: var(--accent);
+  background: rgba(139, 92, 246, 0.12);
+  border: 2px solid rgba(139, 92, 246, 0.45);
+}
+.qr-wait-sub { color: var(--muted); font-size: 14px; font-weight: 500; }
 .qr-card .scan { margin: 16px 0 4px; font-weight: 700; font-size: 20px; }
 .qr-card .url { color: var(--muted); font-size: 14px; word-break: break-all; }
 
@@ -177,6 +197,24 @@ html, body {
 }
 .host .viewers b { color: var(--ink); font-variant-numeric: tabular-nums; }
 .host .viewers svg { color: var(--accent); }
+.host .clock {
+  font-size: clamp(18px, 2vw, 26px);
+  font-weight: 700;
+  color: var(--muted);
+}
+.host .clock b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.host .clock.closing b { color: var(--bad); animation: blink 1s steps(2, start) infinite; }
+@keyframes blink { 50% { opacity: 0.35; } }
+.duration {
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+}
 .controls { display: flex; gap: 12px; }
 
 .btn {
@@ -310,8 +348,84 @@ html, body {
   color: var(--muted);
 }
 .banner.closed { color: #ffd7dd; border-color: rgba(244, 63, 94, 0.4); }
+.banner.time { color: #ffe9c7; border-color: rgba(245, 158, 11, 0.4); }
+.banner.time b { font-variant-numeric: tabular-nums; }
 
 .hidden { display: none !important; }
+
+/* --------------------------- Admin passcode modal --------------------------- */
+
+.auth-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(5, 8, 20, 0.72);
+  backdrop-filter: blur(4px);
+}
+.auth-modal {
+  width: 100%;
+  max-width: 380px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 26px;
+  display: grid;
+  gap: 14px;
+}
+.auth-modal h3 { margin: 0; font-size: 22px; }
+.auth-sub { margin: -6px 0 0; color: var(--muted); font-size: 14px; }
+.auth-input {
+  font: inherit;
+  font-size: 18px;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+  width: 100%;
+}
+.auth-input:focus { outline: none; border-color: var(--accent); }
+.auth-err { color: var(--bad); font-weight: 600; font-size: 14px; }
+.auth-actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+/* ------------------------------ Follow-up ------------------------------ */
+
+/* Voter: small badge above the follow-up question */
+.follow-tag {
+  display: inline-block;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--good);
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  border-radius: 999px;
+  padding: 7px 14px;
+  margin-bottom: 18px;
+}
+.follow-skip { margin-top: 18px; }
+
+/* Host: follow-up results block below the main bars */
+.followup {
+  margin-top: clamp(24px, 3vw, 44px);
+  padding-top: clamp(18px, 2.5vw, 34px);
+  border-top: 1px solid var(--line);
+}
+.follow-h {
+  font-size: clamp(22px, 2.6vw, 38px);
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  margin: 0 0 18px;
+  color: var(--ink);
+}
+.follow-h::before {
+  content: "Follow-up · ";
+  color: var(--muted);
+  font-weight: 600;
+}
 
 @media (max-width: 880px) {
   .host .stage { grid-template-columns: 1fr; }

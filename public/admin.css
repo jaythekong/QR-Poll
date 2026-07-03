@@ -85,6 +85,25 @@ input[type="text"]::placeholder { color: #6b7494; }
 .option-row .btn { padding: 12px 13px; }
 .add { justify-self: start; }
 
+.followup-field {
+  border-top: 1px dashed var(--line);
+  padding-top: 20px;
+}
+.followup-label { display: block; }
+.followup-label .muted { text-transform: none; letter-spacing: 0; font-weight: 500; }
+
+#followList { display: grid; gap: 14px; }
+.follow-block {
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+.follow-block-head { display: flex; gap: 10px; align-items: center; }
+.follow-block-head .fu-question { flex: 1; }
+.follow-block .add { justify-self: start; }
+
 .actions-bar {
   display: flex;
   align-items: center;
@@ -150,6 +169,8 @@ input[type="text"]::placeholder { color: #6b7494; }
 }
 .tally { color: var(--muted); font-variant-numeric: tabular-nums; }
 .live-tag { color: var(--good); font-weight: 700; }
+.log-fu { margin-top: 6px; font-size: 13px; display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.log-fu .tally { color: var(--ink); font-weight: 600; }
 
 .log-empty { color: var(--muted); font-size: 14px; padding: 6px 2px; }
 

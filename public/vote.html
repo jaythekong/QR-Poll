@@ -22,9 +22,19 @@
 
     <!-- Voting view -->
     <section id="voteView">
+      <div class="banner hidden" id="waitBanner">⏳ The poll hasn't started yet — hang tight!</div>
       <div class="banner closed hidden" id="closedBanner">Voting is closed. Thanks for stopping by!</div>
+      <div class="banner time hidden" id="timeBanner">⏱ Voting closes in <b id="timeLeft">0:00</b></div>
       <h1 class="vote-question" id="question">Loading…</h1>
       <div class="options" id="options"></div>
+    </section>
+
+    <!-- Follow-up question (shown after the main vote, if configured) -->
+    <section id="followView" class="hidden">
+      <div class="follow-tag" id="followTag">✓ Vote counted · one more quick question</div>
+      <h1 class="vote-question" id="followQuestion"></h1>
+      <div class="options" id="followOptions"></div>
+      <button type="button" class="btn ghost follow-skip" id="followSkip">Skip</button>
     </section>
 
     <!-- Confirmation view (F2: one tap → confirmation) -->

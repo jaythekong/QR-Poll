@@ -8,47 +8,21 @@ let logoValue = '/logo.svg';
 
 // --- admin auth ------------------------------------------------------------
 // When the server has an ADMIN_PASSCODE set, privileged requests need a token.
-// We obtain one by POSTing the passcode to /api/login and keep it for the tab.
+// Token storage + the passcode modal live in the shared PollAuth (auth.js).
 
-const TOKEN_KEY = 'qrpoll_admin_token';
 let authRequired = false;
 
-function getToken() {
-  try { return sessionStorage.getItem(TOKEN_KEY) || ''; } catch { return ''; }
-}
-function setToken(t) {
-  try {
-    if (t) sessionStorage.setItem(TOKEN_KEY, t);
-    else sessionStorage.removeItem(TOKEN_KEY);
-  } catch { /* sessionStorage unavailable — token lives only in memory below */ }
-  memToken = t || '';
-}
-let memToken = '';
-function token() { return getToken() || memToken; }
-
 function adminHeaders() {
-  return authRequired && token() ? { 'x-admin-token': token() } : {};
-}
-
-async function login(passcode) {
-  const res = await fetch('/api/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ passcode })
-  });
-  if (!res.ok) throw new Error('bad_passcode');
-  setToken((await res.json()).token);
+  const t = PollAuth.getToken();
+  return authRequired && t ? { 'x-admin-token': t } : {};
 }
 
 // Make sure we hold a valid token before a privileged action. Returns false if
-// the user cancels or the passcode is wrong.
+// the user cancels the passcode modal.
 async function ensureAuth() {
   if (!authRequired) return true;
-  if (token()) return true;
-  const passcode = prompt('Enter the admin passcode to manage this poll:');
-  if (passcode == null) return false;
-  try { await login(passcode); return true; }
-  catch { flash('Wrong passcode', false); return false; }
+  if (PollAuth.getToken()) return true;
+  return PollAuth.requestPasscode();
 }
 
 // --- helpers ---------------------------------------------------------------
@@ -75,7 +49,7 @@ async function uploadImage(file) {
     body: JSON.stringify({ dataUrl })
   });
   if (res.status === 401) {
-    setToken('');
+    PollAuth.setToken('');
     throw new Error('not authorized');
   }
   if (!res.ok) throw new Error('upload failed');
@@ -112,7 +86,7 @@ $('#logoFile').addEventListener('change', async (e) => {
 
 // --- option rows -----------------------------------------------------------
 
-function addOptionRow(opt = {}) {
+function addOptionRow(opt = {}, list = optionList, minKeep = 2) {
   const node = optionTpl.content.firstElementChild.cloneNode(true);
   const iconInput = node.querySelector('.opt-icon');
   const labelInput = node.querySelector('.opt-label');
@@ -147,17 +121,59 @@ function addOptionRow(opt = {}) {
   });
 
   node.querySelector('.opt-remove').addEventListener('click', () => {
-    if (optionList.children.length <= 2) return flash('Keep at least 2 options', false);
+    if (list.children.length <= minKeep) return flash(`Keep at least ${minKeep} options`, false);
     node.remove();
   });
 
-  optionList.appendChild(node);
+  list.appendChild(node);
 }
 
 $('#addOption').addEventListener('click', () => addOptionRow());
 
-function collectOptions() {
-  return [...optionList.querySelectorAll('.option-row')].map((row) => {
+// --- follow-up question blocks (max 2 → 3 questions total) -------------------
+
+const followList = $('#followList');
+const MAX_FOLLOWUPS = 2;
+
+function updateFollowAddBtn() {
+  $('#addFollowUp').classList.toggle('hidden', followList.children.length >= MAX_FOLLOWUPS);
+}
+
+function addFollowBlock(fu = {}) {
+  if (followList.children.length >= MAX_FOLLOWUPS) return;
+  const block = document.createElement('div');
+  block.className = 'follow-block';
+  block.innerHTML = `
+    <div class="follow-block-head">
+      <input type="text" class="fu-question" placeholder="Follow-up question" maxlength="160" />
+      <button type="button" class="btn ghost fu-remove" title="Remove this question">✕</button>
+    </div>
+    <div class="option-rows fu-options"></div>
+    <button type="button" class="btn ghost add fu-add-opt">+ Add option</button>`;
+  block.querySelector('.fu-question').value = fu.question || '';
+  const list = block.querySelector('.fu-options');
+  const opts = (fu.options || []).map((o) => (typeof o === 'string' ? { label: o } : o));
+  (opts.length ? opts : [{}, {}]).forEach((o) => addOptionRow(o, list, 0));
+  block.querySelector('.fu-add-opt').addEventListener('click', () => addOptionRow({}, list, 0));
+  block.querySelector('.fu-remove').addEventListener('click', () => {
+    block.remove();
+    updateFollowAddBtn();
+  });
+  followList.appendChild(block);
+  updateFollowAddBtn();
+}
+
+$('#addFollowUp').addEventListener('click', () => addFollowBlock());
+
+function collectFollowUps() {
+  return [...followList.querySelectorAll('.follow-block')].map((block) => ({
+    question: block.querySelector('.fu-question').value.trim(),
+    options: collectOptions(block.querySelector('.fu-options')).filter((o) => o.label)
+  }));
+}
+
+function collectOptions(list = optionList) {
+  return [...list.querySelectorAll('.option-row')].map((row) => {
     const iconInput = row.querySelector('.opt-icon');
     const icon = iconInput.dataset.image || iconInput.value.trim();
     return { label: row.querySelector('.opt-label').value.trim(), icon };
@@ -180,7 +196,13 @@ async function load() {
   $('#question').value = cfg.question || '';
   optionList.innerHTML = '';
   const opts = (cfg.options || []).map((o) => (typeof o === 'string' ? { label: o } : o));
-  (opts.length ? opts : [{}, {}]).forEach(addOptionRow);
+  (opts.length ? opts : [{}, {}]).forEach((o) => addOptionRow(o));
+
+  // Follow-up questions (optional; accepts legacy single `followUp` too)
+  followList.innerHTML = '';
+  const fus = Array.isArray(cfg.followUps) ? cfg.followUps : cfg.followUp ? [cfg.followUp] : [];
+  fus.slice(0, MAX_FOLLOWUPS).forEach(addFollowBlock);
+  updateFollowAddBtn();
 }
 
 $('#form').addEventListener('submit', async (e) => {
@@ -191,6 +213,16 @@ $('#form').addEventListener('submit', async (e) => {
   if (!question) return flash('Add a poll name / question', false);
   if (options.length < 2) return flash('Add at least 2 named options', false);
 
+  // Follow-ups: empty blocks are dropped; a half-filled one is an error.
+  const followUps = collectFollowUps().filter((fu) => fu.question || fu.options.length);
+  for (const fu of followUps) {
+    if (!fu.question || fu.options.length < 2) {
+      return flash('Each follow-up needs a question and at least 2 options', false);
+    }
+  }
+  const payload = { logo: logoValue, question, options };
+  if (followUps.length) payload.followUps = followUps;
+
   if (!(await ensureAuth())) return flash('Admin passcode required to save', false);
 
   $('#saveBtn').disabled = true;
@@ -198,17 +230,17 @@ $('#form').addEventListener('submit', async (e) => {
     const res = await fetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...adminHeaders() },
-      body: JSON.stringify({ logo: logoValue, question, options })
+      body: JSON.stringify(payload)
     });
     if (res.status === 401) {
-      setToken('');
+      PollAuth.setToken('');
       flash('Passcode expired — try saving again', false);
       return;
     }
     const data = await res.json();
     if (res.ok) {
       $('#brandLogo').src = logoValue;
-      flash('Saved — poll is live. Votes reset.', true);
+      flash('Saved. Votes reset — press Start poll on the big screen when ready.', true);
     } else {
       flash('Could not save (' + (data.error || 'error') + ')', false);
     }
@@ -251,6 +283,7 @@ function renderLog(data) {
 
   // Summary — aggregated across every session's own changes.
   const totalCast = sessions.reduce((sum, s) => sum + (s.votes || 0), 0);
+  const totalFu = sessions.reduce((sum, s) => sum + (s.fuCast || 0), 0);
   const retracted = sessions.reduce((sum, s) => sum + s.changes.length, 0);
   const switched = sessions.reduce(
     (sum, s) => sum + s.changes.filter((c) => c.to && c.to !== c.from).length,
@@ -259,6 +292,7 @@ function renderLog(data) {
   $('#logSummary').innerHTML =
     `<span><b>${sessions.length}</b> session${sessions.length === 1 ? '' : 's'}</span>` +
     `<span><b>${totalCast}</b> votes cast</span>` +
+    `<span><b>${totalFu}</b> follow-up answer${totalFu === 1 ? '' : 's'}</span>` +
     `<span><b>${retracted}</b> retraction${retracted === 1 ? '' : 's'}</span>` +
     `<span><b>${switched}</b> vote change${switched === 1 ? '' : 's'}</span>`;
 
@@ -277,6 +311,16 @@ function renderLog(data) {
             .filter((t) => t.votes > 0)
             .map((t) => `${escapeText(t.label)} ${t.votes}`)
             .join(' · ') || '—';
+          // Per-session follow-up results (question + its tally).
+          const fuBlock = (s.followUps || [])
+            .map((fu) => {
+              const ft = fu.tally
+                .filter((t) => t.votes > 0)
+                .map((t) => `${escapeText(t.label)} ${t.votes}`)
+                .join(' · ') || '—';
+              return `<div class="log-fu"><span class="muted">↳ ${escapeText(fu.question)}</span> <span class="tally">${ft}</span> <span class="muted">(${fu.total} answer${fu.total === 1 ? '' : 's'})</span></div>`;
+            })
+            .join('');
           const chg = [...s.changes].reverse();
           const changesBlock = chg.length
             ? `<div class="session-changes">${chg.map(changeRow).join('')}</div>`
@@ -285,6 +329,7 @@ function renderLog(data) {
             <div class="log-row-top"><b>Session ${n}</b> <span class="muted">${when}</span></div>
             <div class="log-q">${escapeText(s.question)}</div>
             <div class="log-stats"><span class="chip">${s.votes} cast</span> <span class="tally">${tally}</span></div>
+            ${fuBlock}
             <div class="session-changes-label">Changes &amp; retractions (${s.changes.length})</div>
             ${changesBlock}
           </div>`;
@@ -313,7 +358,9 @@ async function init() {
   await load();
   fetchLog();
   setInterval(fetchLog, 5000); // keep the activity log live
-  if (authRequired && !token()) ensureAuth();
+  // A stored token may have gone stale (server restart) — verify, and show the
+  // passcode modal if we don't hold a valid one.
+  if (authRequired && !(await PollAuth.verify())) PollAuth.requestPasscode();
 }
 
 init().catch(() => flash('Could not load current poll', false));

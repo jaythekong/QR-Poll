@@ -14,77 +14,81 @@ const el = {
   unlockBtn: document.getElementById('unlockBtn'),
   resetBtn: document.getElementById('resetBtn'),
   closeBtn: document.getElementById('closeBtn'),
-  openBtn: document.getElementById('openBtn'),
+  startBtn: document.getElementById('startBtn'),
+  duration: document.getElementById('duration'),
+  clock: document.getElementById('clock'),
+  clockText: document.getElementById('clockText'),
+  qrWait: document.getElementById('qrWait'),
+  qrLive: document.getElementById('qrLive'),
   viewers: document.getElementById('viewers'),
-  viewerCount: document.getElementById('viewerCount')
+  viewerCount: document.getElementById('viewerCount'),
+  followBlocks: document.getElementById('followBlocks')
 };
 
 // --- admin auth ------------------------------------------------------------
 // The host screen is public (anyone in the room may open it), so the control
 // buttons must be gated when the server has an ADMIN_PASSCODE. Until unlocked,
 // the controls are hidden and the server rejects host:* events without a token.
-const TOKEN_KEY = 'qrpoll_admin_token';
+// Token storage + passcode modal live in the shared PollAuth (auth.js).
 let authRequired = false;
 let unlocked = true; // becomes false once we learn a passcode is required
-
-function getToken() {
-  try { return sessionStorage.getItem(TOKEN_KEY) || ''; } catch { return ''; }
-}
-function setToken(t) {
-  try {
-    if (t) sessionStorage.setItem(TOKEN_KEY, t);
-    else sessionStorage.removeItem(TOKEN_KEY);
-  } catch { /* ignore */ }
-}
 
 // Reflect lock state in the UI: when locked, only the Unlock button shows.
 function applyLock() {
   if (unlocked) {
     el.unlockBtn.classList.add('hidden');
     el.resetBtn.classList.remove('hidden');
-    // close/open visibility is owned by render() based on poll state
+    // start/close/duration visibility is owned by render() based on phase
   } else {
     el.unlockBtn.classList.remove('hidden');
     el.resetBtn.classList.add('hidden');
     el.closeBtn.classList.add('hidden');
-    el.openBtn.classList.add('hidden');
+    el.startBtn.classList.add('hidden');
+    el.duration.classList.add('hidden');
   }
 }
 
 async function unlock() {
-  const passcode = prompt('Enter the admin passcode to control the poll:');
-  if (passcode == null) return;
-  try {
-    const res = await fetch('/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ passcode })
-    });
-    if (!res.ok) throw new Error('bad');
-    setToken((await res.json()).token);
+  if (await PollAuth.requestPasscode()) {
     unlocked = true;
     applyLock();
-  } catch {
-    alert('Wrong passcode.');
+    if (lastState) render(lastState);
   }
 }
 
 // Attach the token to host control events when auth is on.
 function ctrl() {
-  return authRequired ? { token: getToken() } : undefined;
+  return authRequired ? { token: PollAuth.getToken() } : {};
+}
+
+// Emit a host control event; if the server rejects the token (e.g. it went
+// stale after a restart), re-lock the controls and re-prompt instead of
+// failing silently.
+function hostEmit(event, extra) {
+  socket.emit(event, Object.assign({}, ctrl(), extra || {}), (res) => {
+    if (res && res.ok === false && res.reason === 'unauthorized') {
+      PollAuth.setToken('');
+      unlocked = false;
+      applyLock();
+      unlock();
+    }
+  });
 }
 
 (async function initAuth() {
   try {
     authRequired = (await (await fetch('/api/auth-status')).json()).required;
   } catch { authRequired = false; }
-  if (authRequired && !getToken()) {
-    unlocked = false;
+  if (authRequired) {
+    // Only stay unlocked if the stored token is still valid on the server.
+    unlocked = await PollAuth.verify();
   }
   applyLock();
+  if (lastState) render(lastState);
 })();
 
 const rows = new Map(); // optionId -> { fill, count, pct, label }
+const followBlocks = []; // one { qEl, barsEl, rows } per follow-up question
 
 // This is the big screen, not a voter — announce so it isn't counted as watching.
 socket.on('connect', () => socket.emit('hello', { role: 'host' }));
@@ -101,9 +105,9 @@ fetch('/api/qr')
   })
   .catch(() => (el.url.textContent = 'Could not generate QR code'));
 
-function buildRows(options) {
-  el.bars.innerHTML = '';
-  rows.clear();
+function buildRows(container, rowMap, options) {
+  container.innerHTML = '';
+  rowMap.clear();
   for (const o of options) {
     const row = document.createElement('div');
     row.className = 'bar-row';
@@ -111,8 +115,8 @@ function buildRows(options) {
       <div class="bar-label">${iconHtml(o.icon)}<span class="bl-text">${escapeHtml(o.label)}</span></div>
       <div class="bar-track"><div class="bar-fill"></div></div>
       <div class="bar-meta"><span class="count">0</span><span class="pct">0%</span></div>`;
-    el.bars.appendChild(row);
-    rows.set(o.id, {
+    container.appendChild(row);
+    rowMap.set(o.id, {
       label: o.label,
       fill: row.querySelector('.bar-fill'),
       count: row.querySelector('.count'),
@@ -121,41 +125,115 @@ function buildRows(options) {
   }
 }
 
-function render(state) {
-  if (el.logo.getAttribute('src') !== state.logo) el.logo.src = state.logo;
-  el.question.textContent = state.question;
-  el.total.textContent = state.total;
+// One results block per follow-up question, live-updating like the main bars.
+function renderFollowUps(fus) {
+  if (followBlocks.length !== fus.length) {
+    el.followBlocks.innerHTML = '';
+    followBlocks.length = 0;
+    for (let i = 0; i < fus.length; i++) {
+      const div = document.createElement('div');
+      div.className = 'followup';
+      div.innerHTML = `<h2 class="follow-h"></h2><div class="bars"></div>`;
+      el.followBlocks.appendChild(div);
+      followBlocks.push({
+        qEl: div.querySelector('.follow-h'),
+        barsEl: div.querySelector('.bars'),
+        rows: new Map()
+      });
+    }
+  }
+  fus.forEach((fu, i) => {
+    const b = followBlocks[i];
+    b.qEl.textContent = fu.question;
+    renderBars(b.barsEl, b.rows, fu.options);
+  });
+}
 
-  // Rebuild rows if the option set changed (e.g. after a reset w/ new config).
-  const ids = state.options.map((o) => o.id).join(',');
-  if (ids !== [...rows.keys()].join(',')) buildRows(state.options);
-
-  const max = Math.max(1, ...state.options.map((o) => o.votes));
-  for (const o of state.options) {
-    const r = rows.get(o.id);
+// Rebuild the bar rows only when the option set changes, then update widths.
+function renderBars(container, rowMap, options) {
+  const ids = options.map((o) => o.id).join(',');
+  if (ids !== [...rowMap.keys()].join(',')) buildRows(container, rowMap, options);
+  const max = Math.max(1, ...options.map((o) => o.votes));
+  for (const o of options) {
+    const r = rowMap.get(o.id);
     if (!r) continue;
     r.fill.style.width = (o.votes / max) * 100 + '%';
     r.count.textContent = o.votes;
     r.pct.textContent = o.percent + '%';
   }
+}
 
-  if (state.open) {
+function render(state) {
+  if (el.logo.getAttribute('src') !== state.logo) el.logo.src = state.logo;
+  el.question.textContent = state.question;
+  el.total.textContent = state.total;
+
+  renderBars(el.bars, rows, state.options);
+  renderFollowUps(state.followUps || []);
+
+  const phase = state.phase || (state.open ? 'open' : 'closed');
+
+  // QR is only shown while voting is open ("start poll" reveals it).
+  el.qrLive.classList.toggle('hidden', phase !== 'open');
+  el.qrWait.classList.toggle('hidden', phase === 'open');
+  el.qrWait.querySelector('.qr-wait-icon').textContent = phase === 'closed' ? '■' : '▶';
+  el.qrWait.querySelector('.qr-wait-title').textContent =
+    phase === 'closed' ? 'Voting has ended' : "Poll hasn't started yet";
+  el.qrWait.querySelector('.qr-wait-sub').innerHTML =
+    phase === 'closed'
+      ? 'Press <b>Start again</b> to reopen voting'
+      : 'Press <b>Start poll</b> to show the QR code';
+
+  if (phase === 'open') {
     el.status.className = 'pill live';
     el.statusText.textContent = 'Live';
+  } else if (phase === 'standby') {
+    el.status.className = 'pill';
+    el.statusText.textContent = 'Ready to start';
   } else {
     el.status.className = 'pill closed';
     el.statusText.textContent = 'Voting closed';
   }
 
-  // Close/Open toggle is only meaningful (and only shown) once unlocked.
+  // Ticking clock: count down when timed, count up when open-ended.
+  clockRef = { phase, startedAt: state.startedAt, endsAt: state.endsAt };
+  serverOffset = (state.now || Date.now()) - Date.now();
+  tickClock();
+
+  // Start/Close controls only show once unlocked, per phase.
   if (unlocked) {
-    el.closeBtn.classList.toggle('hidden', !state.open);
-    el.openBtn.classList.toggle('hidden', state.open);
+    el.closeBtn.classList.toggle('hidden', phase !== 'open');
+    el.startBtn.classList.toggle('hidden', phase === 'open');
+    el.duration.classList.toggle('hidden', phase === 'open');
+    el.startBtn.textContent = phase === 'closed' ? 'Start again' : 'Start poll';
   } else {
     el.closeBtn.classList.add('hidden');
-    el.openBtn.classList.add('hidden');
+    el.startBtn.classList.add('hidden');
+    el.duration.classList.add('hidden');
   }
 }
+
+// --- ticking clock -----------------------------------------------------------
+let clockRef = { phase: 'standby', startedAt: null, endsAt: null };
+let serverOffset = 0;
+
+function fmtClock(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+
+function tickClock() {
+  const { phase, startedAt, endsAt } = clockRef;
+  if (phase !== 'open' || !startedAt) {
+    el.clock.classList.add('hidden');
+    return;
+  }
+  const now = Date.now() + serverOffset;
+  el.clock.classList.remove('hidden');
+  el.clock.classList.toggle('closing', !!endsAt && endsAt - now < 11000);
+  el.clockText.textContent = endsAt ? fmtClock(endsAt - now) : fmtClock(now - startedAt);
+}
+setInterval(tickClock, 500);
 
 let lastState = null;
 socket.on('state', (state) => {
@@ -163,15 +241,14 @@ socket.on('state', (state) => {
   render(state);
 });
 
-el.unlockBtn.addEventListener('click', async () => {
-  await unlock();
-  if (lastState) render(lastState);
-});
-el.closeBtn.addEventListener('click', () => socket.emit('host:close', ctrl()));
-el.openBtn.addEventListener('click', () => socket.emit('host:open', ctrl()));
+el.unlockBtn.addEventListener('click', unlock);
+el.closeBtn.addEventListener('click', () => hostEmit('host:close'));
+el.startBtn.addEventListener('click', () =>
+  hostEmit('host:start', { duration: Number(el.duration.value) })
+);
 el.resetBtn.addEventListener('click', () => {
   if (confirm('Reset all votes and reload the poll question/options?')) {
-    socket.emit('host:reset', ctrl());
+    hostEmit('host:reset');
   }
 });
 

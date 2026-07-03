@@ -18,12 +18,21 @@
       <div>
         <h1 class="question" id="question">Loading poll…</h1>
         <div class="bars" id="bars"></div>
+
+        <div id="followBlocks"></div>
       </div>
 
       <aside class="qr-card">
-        <img id="qr" alt="Scan to vote" />
-        <div class="scan">Scan to vote</div>
-        <div class="url" id="url"></div>
+        <div class="qr-wait" id="qrWait">
+          <div class="qr-wait-icon">▶</div>
+          <div class="qr-wait-title">Poll hasn't started yet</div>
+          <div class="qr-wait-sub">Press <b>Start poll</b> to show the QR code</div>
+        </div>
+        <div id="qrLive" class="hidden">
+          <img id="qr" alt="Scan to vote" />
+          <div class="scan">Scan to vote</div>
+          <div class="url" id="url"></div>
+        </div>
       </aside>
     </section>
 
@@ -34,17 +43,26 @@
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
           <b id="viewerCount">0</b> watching
         </div>
+        <div class="clock hidden" id="clock">⏱ <b id="clockText">0:00</b></div>
       </div>
       <div class="controls">
         <button class="btn primary hidden" id="unlockBtn">Unlock controls</button>
         <button class="btn ghost" id="resetBtn">Reset</button>
-        <button class="btn" id="closeBtn">Close voting</button>
-        <button class="btn primary hidden" id="openBtn">Open voting</button>
+        <select id="duration" class="duration hidden" title="Voting time limit">
+          <option value="0">No time limit</option>
+          <option value="30">30 seconds</option>
+          <option value="60">1 minute</option>
+          <option value="120">2 minutes</option>
+          <option value="300">5 minutes</option>
+        </select>
+        <button class="btn primary hidden" id="startBtn">Start poll</button>
+        <button class="btn hidden" id="closeBtn">Close voting</button>
       </div>
     </footer>
   </main>
 
   <script src="/socket.io/socket.io.js"></script>
+  <script src="/auth.js"></script>
   <script src="/host.js"></script>
 </body>
 </html>

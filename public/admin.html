@@ -48,9 +48,18 @@
         <button type="button" class="btn ghost add" id="addOption">+ Add option</button>
       </div>
 
+      <!-- Follow-up questions (optional, max 2 → 3 questions total) -->
+      <div class="field followup-field">
+        <label class="followup-label">
+          Follow-up questions <span class="muted">— optional, up to 2, asked after each vote</span>
+        </label>
+        <div id="followList"></div>
+        <button type="button" class="btn ghost add" id="addFollowUp">+ Add follow-up question</button>
+      </div>
+
       <div class="actions-bar">
         <span class="save-msg" id="msg"></span>
-        <button type="submit" class="btn primary" id="saveBtn">Save & start poll</button>
+        <button type="submit" class="btn primary" id="saveBtn">Save poll</button>
       </div>
     </form>
 
@@ -83,6 +92,7 @@
     </div>
   </template>
 
+  <script src="/auth.js"></script>
   <script src="/admin.js"></script>
 </body>
 </html>
