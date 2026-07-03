@@ -16,6 +16,7 @@ const el = {
   question: document.getElementById('question'),
   options: document.getElementById('options'),
   pick: document.getElementById('pick'),
+  myResults: document.getElementById('myResults'),
   revotePick: document.getElementById('revotePick'),
   revoteNote: document.getElementById('revoteNote'),
   changeBtn: document.getElementById('changeBtn'),
@@ -49,6 +50,7 @@ let voted = false; // has this device voted in the *current* poll round
 let followIdx = 0; // which follow-up question this device is on (this round)
 let followBusy = false; // guard against double-tapping a follow-up option
 let myVoteId = null; // the option this device voted for (for re-vote/confirm)
+let myFollowPicks = {}; // fuIndex -> optionId this device answered
 const labels = new Map(); // optionId -> label
 
 function labelFor(optionId) {
@@ -95,9 +97,17 @@ function castFollowVote(optionId, btn) {
   followBusy = true;
   [...el.followOptions.children].forEach((b) => (b.disabled = true));
   btn.classList.add('chosen');
-  socket.emit('followVote', { fuIndex: followIdx, optionId, deviceId }, () => {
-    followIdx += 1;
-    setTimeout(nextFollowUp, 280);
+  const fu = ((lastState && lastState.followUps) || [])[followIdx];
+  const picked = fu && fu.options.find((o) => o.id === optionId);
+  socket.emit('followVote', { fuIndex: followIdx, optionId, deviceId }, (res) => {
+    if (res && res.ok) myFollowPicks[followIdx] = optionId;
+    // "End early" answers skip any remaining questions.
+    if (picked && picked.end) {
+      setTimeout(() => showThanks(myVoteId), 280);
+    } else {
+      followIdx += 1;
+      setTimeout(nextFollowUp, 280);
+    }
   });
 }
 
@@ -105,6 +115,30 @@ function showThanks(optionId) {
   myVoteId = optionId;
   el.pick.textContent = labelFor(optionId);
   showView('thanks');
+  renderMyResults(lastState);
+}
+
+// The final screen lists just this voter's own choices — the live tallies
+// belong on the big screen.
+function renderMyResults(s) {
+  if (!s) return;
+
+  const row = (question, options, pickedId) => {
+    const picked = options.find((o) => o.id === pickedId);
+    if (!picked) return '';
+    return `<div class="ans-row">
+      <span class="ans-q">${escapeHtml(question)}</span>
+      <span class="ans-a">${iconHtml(picked.icon)}<span>${escapeHtml(picked.label)}</span></span>
+    </div>`;
+  };
+
+  let html = row(s.question, s.options, myVoteId);
+  (s.followUps || []).forEach((fu, i) => {
+    html += row(fu.question, fu.options, myFollowPicks[i]);
+  });
+  el.myResults.innerHTML = html
+    ? `<div class="ans-title">Your answers</div>${html}`
+    : '';
 }
 
 // "You've already voted for X — cancel and vote again?"
@@ -140,7 +174,13 @@ function castVote(optionId, btn) {
     if (res && res.ok) {
       localStorage.setItem('qrpoll_voted', optionId);
       myVoteId = optionId;
-      setTimeout(nextFollowUp, 280); // follow-up questions first, thanks after
+      // "End early" options skip the remaining questions entirely.
+      const picked = (lastState.options || []).find((o) => o.id === optionId);
+      if (picked && picked.end) {
+        setTimeout(() => showThanks(optionId), 280);
+      } else {
+        setTimeout(nextFollowUp, 280); // follow-up questions first, thanks after
+      }
     } else if (res && res.reason === 'already_voted') {
       // This device already has a vote on record → offer to cancel & re-vote.
       btn.classList.remove('chosen');
@@ -165,8 +205,12 @@ function cancelVote() {
   socket.emit('cancel', { deviceId }, (res) => {
     el.revoteYes.disabled = false;
     if (res && res.ok) {
+      // Changing a vote restarts the whole flow: main question AND all
+      // follow-ups again from Q1 (the server wiped our previous answers).
       voted = false;
       myVoteId = null;
+      followIdx = 0;
+      myFollowPicks = {};
       localStorage.removeItem('qrpoll_voted');
       [...el.options.children].forEach((b) => b.classList.remove('chosen'));
       applyState(); // re-enables the buttons for the current state
@@ -216,6 +260,7 @@ function applyState() {
   if (ids !== [...labels.keys()].join(',')) {
     voted = false; // new round
     followIdx = 0;
+    myFollowPicks = {};
     buildOptions(s.options);
   } else {
     [...el.options.children].forEach((b) => (b.disabled = !isOpen || voted));

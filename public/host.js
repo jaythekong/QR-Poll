@@ -11,7 +11,6 @@ const el = {
   statusText: document.getElementById('statusText'),
   qr: document.getElementById('qr'),
   url: document.getElementById('url'),
-  unlockBtn: document.getElementById('unlockBtn'),
   resetBtn: document.getElementById('resetBtn'),
   closeBtn: document.getElementById('closeBtn'),
   startBtn: document.getElementById('startBtn'),
@@ -25,67 +24,7 @@ const el = {
   followBlocks: document.getElementById('followBlocks')
 };
 
-// --- admin auth ------------------------------------------------------------
-// The host screen is public (anyone in the room may open it), so the control
-// buttons must be gated when the server has an ADMIN_PASSCODE. Until unlocked,
-// the controls are hidden and the server rejects host:* events without a token.
-// Token storage + passcode modal live in the shared PollAuth (auth.js).
-let authRequired = false;
-let unlocked = true; // becomes false once we learn a passcode is required
-
-// Reflect lock state in the UI: when locked, only the Unlock button shows.
-function applyLock() {
-  if (unlocked) {
-    el.unlockBtn.classList.add('hidden');
-    el.resetBtn.classList.remove('hidden');
-    // start/close/duration visibility is owned by render() based on phase
-  } else {
-    el.unlockBtn.classList.remove('hidden');
-    el.resetBtn.classList.add('hidden');
-    el.closeBtn.classList.add('hidden');
-    el.startBtn.classList.add('hidden');
-    el.duration.classList.add('hidden');
-  }
-}
-
-async function unlock() {
-  if (await PollAuth.requestPasscode()) {
-    unlocked = true;
-    applyLock();
-    if (lastState) render(lastState);
-  }
-}
-
-// Attach the token to host control events when auth is on.
-function ctrl() {
-  return authRequired ? { token: PollAuth.getToken() } : {};
-}
-
-// Emit a host control event; if the server rejects the token (e.g. it went
-// stale after a restart), re-lock the controls and re-prompt instead of
-// failing silently.
-function hostEmit(event, extra) {
-  socket.emit(event, Object.assign({}, ctrl(), extra || {}), (res) => {
-    if (res && res.ok === false && res.reason === 'unauthorized') {
-      PollAuth.setToken('');
-      unlocked = false;
-      applyLock();
-      unlock();
-    }
-  });
-}
-
-(async function initAuth() {
-  try {
-    authRequired = (await (await fetch('/api/auth-status')).json()).required;
-  } catch { authRequired = false; }
-  if (authRequired) {
-    // Only stay unlocked if the stored token is still valid on the server.
-    unlocked = await PollAuth.verify();
-  }
-  applyLock();
-  if (lastState) render(lastState);
-})();
+// No passcode — internal tool; the controls work for everyone.
 
 const rows = new Map(); // optionId -> { fill, count, pct, label }
 const followBlocks = []; // one { qEl, barsEl, rows } per follow-up question
@@ -200,17 +139,11 @@ function render(state) {
   serverOffset = (state.now || Date.now()) - Date.now();
   tickClock();
 
-  // Start/Close controls only show once unlocked, per phase.
-  if (unlocked) {
-    el.closeBtn.classList.toggle('hidden', phase !== 'open');
-    el.startBtn.classList.toggle('hidden', phase === 'open');
-    el.duration.classList.toggle('hidden', phase === 'open');
-    el.startBtn.textContent = phase === 'closed' ? 'Start again' : 'Start poll';
-  } else {
-    el.closeBtn.classList.add('hidden');
-    el.startBtn.classList.add('hidden');
-    el.duration.classList.add('hidden');
-  }
+  // Start/Close controls per phase.
+  el.closeBtn.classList.toggle('hidden', phase !== 'open');
+  el.startBtn.classList.toggle('hidden', phase === 'open');
+  el.duration.classList.toggle('hidden', phase === 'open');
+  el.startBtn.textContent = phase === 'closed' ? 'Start again' : 'Start poll';
 }
 
 // --- ticking clock -----------------------------------------------------------
@@ -241,14 +174,13 @@ socket.on('state', (state) => {
   render(state);
 });
 
-el.unlockBtn.addEventListener('click', unlock);
-el.closeBtn.addEventListener('click', () => hostEmit('host:close'));
+el.closeBtn.addEventListener('click', () => socket.emit('host:close'));
 el.startBtn.addEventListener('click', () =>
-  hostEmit('host:start', { duration: Number(el.duration.value) })
+  socket.emit('host:start', { duration: Number(el.duration.value) })
 );
 el.resetBtn.addEventListener('click', () => {
   if (confirm('Reset all votes and reload the poll question/options?')) {
-    hostEmit('host:reset');
+    socket.emit('host:reset');
   }
 });
 

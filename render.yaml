@@ -10,11 +10,4 @@ services:
     startCommand: npm start
     autoDeploy: true
     healthCheckPath: /
-    envVars:
-      # Passcode for poll edits + host controls. Optional: the app defaults to
-      # the built-in passcode ("firstwave") when this is blank, so the gate is
-      # always on. sync:false makes Render prompt for a value at deploy time —
-      # set one here (kept out of the repo) if you want a private passcode,
-      # especially when the GitHub repo is public.
-      - key: ADMIN_PASSCODE
-        sync: false
+    # No auth env vars — the app runs without a passcode (internal tool).

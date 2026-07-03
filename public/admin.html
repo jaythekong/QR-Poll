@@ -19,7 +19,29 @@
     </header>
 
     <h1 class="admin-title">Set up your poll</h1>
-    <p class="admin-sub">Add an icon and a name for the poll and for each option. Saving starts a fresh round and updates every connected screen live.</p>
+    <p class="admin-sub">Add an icon and a name for the poll and for each option. Saving stores the poll and resets counts — it goes live when you press Start below.</p>
+
+    <!-- Poll controls (the big screen is display-only) -->
+    <section class="card ctrl-card">
+      <div class="ctrl-head">
+        <h2>Poll controls</h2>
+        <span class="pill" id="phasePill"><span class="dot"></span><span id="phaseText">…</span></span>
+      </div>
+      <div class="ctrl-row">
+        <select id="duration" class="duration" title="Voting time limit">
+          <option value="0">No time limit</option>
+          <option value="30">30 seconds</option>
+          <option value="60">1 minute</option>
+          <option value="120">2 minutes</option>
+          <option value="300">5 minutes</option>
+        </select>
+        <button type="button" class="btn primary" id="startBtn">Start poll</button>
+        <button type="button" class="btn hidden" id="closeBtn">Close voting</button>
+        <button type="button" class="btn ghost" id="resetBtn">Reset</button>
+        <span class="ctrl-clock hidden" id="ctrlClock">⏱ <b id="ctrlClockText">0:00</b></span>
+      </div>
+      <p class="hint">The big screen (<a href="/" target="_blank">/</a>) only displays — start, close, and reset the poll from here.</p>
+    </section>
 
     <form id="form" class="card">
       <!-- Poll logo + question -->
@@ -88,11 +110,12 @@
       <input type="text" class="opt-label" placeholder="Option name" maxlength="80" />
       <input type="file" class="opt-file" accept="image/*" hidden />
       <button type="button" class="btn ghost opt-upload" title="Upload image icon">🖼️</button>
+      <button type="button" class="btn ghost opt-end" title="End early: voters who pick this skip any remaining questions">⏭</button>
       <button type="button" class="btn ghost opt-remove" title="Remove">✕</button>
     </div>
   </template>
 
-  <script src="/auth.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
   <script src="/admin.js"></script>
 </body>
 </html>

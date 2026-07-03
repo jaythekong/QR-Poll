@@ -6,24 +6,76 @@ const optionTpl = $('#optionTpl');
 
 let logoValue = '/logo.svg';
 
-// --- admin auth ------------------------------------------------------------
-// When the server has an ADMIN_PASSCODE set, privileged requests need a token.
-// Token storage + the passcode modal live in the shared PollAuth (auth.js).
+// No passcode — internal tool; the admin page and controls are open.
 
-let authRequired = false;
+// --- poll controls (start / close / reset) -----------------------------------
 
-function adminHeaders() {
-  const t = PollAuth.getToken();
-  return authRequired && t ? { 'x-admin-token': t } : {};
+const socket = io();
+socket.on('connect', () => socket.emit('hello', { role: 'admin' }));
+
+let pollState = null;
+let clockRef = { phase: 'standby', startedAt: null, endsAt: null };
+let serverOffset = 0;
+
+function fmtClock(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 }
 
-// Make sure we hold a valid token before a privileged action. Returns false if
-// the user cancels the passcode modal.
-async function ensureAuth() {
-  if (!authRequired) return true;
-  if (PollAuth.getToken()) return true;
-  return PollAuth.requestPasscode();
+function tickCtrlClock() {
+  const { phase, startedAt, endsAt } = clockRef;
+  const clock = $('#ctrlClock');
+  if (phase !== 'open' || !startedAt) {
+    clock.classList.add('hidden');
+    return;
+  }
+  const now = Date.now() + serverOffset;
+  clock.classList.remove('hidden');
+  $('#ctrlClockText').textContent = endsAt ? fmtClock(endsAt - now) : fmtClock(now - startedAt);
 }
+setInterval(tickCtrlClock, 500);
+
+function renderControls(s) {
+  const phase = s.phase || (s.open ? 'open' : 'closed');
+  const pill = $('#phasePill');
+  if (phase === 'open') {
+    pill.className = 'pill live';
+    $('#phaseText').textContent = 'Live';
+  } else if (phase === 'standby') {
+    pill.className = 'pill';
+    $('#phaseText').textContent = 'Ready to start';
+  } else {
+    pill.className = 'pill closed';
+    $('#phaseText').textContent = 'Voting closed';
+  }
+  $('#startBtn').classList.toggle('hidden', phase === 'open');
+  $('#duration').classList.toggle('hidden', phase === 'open');
+  $('#closeBtn').classList.toggle('hidden', phase !== 'open');
+  $('#startBtn').textContent = phase === 'closed' ? 'Start again' : 'Start poll';
+
+  clockRef = { phase, startedAt: s.startedAt, endsAt: s.endsAt };
+  serverOffset = (s.now || Date.now()) - Date.now();
+  tickCtrlClock();
+}
+
+socket.on('state', (s) => {
+  pollState = s;
+  renderControls(s);
+});
+
+function hostEmit(event, extra) {
+  socket.emit(event, extra || {});
+}
+
+$('#startBtn').addEventListener('click', () =>
+  hostEmit('host:start', { duration: Number($('#duration').value) })
+);
+$('#closeBtn').addEventListener('click', () => hostEmit('host:close'));
+$('#resetBtn').addEventListener('click', () => {
+  if (confirm('Reset all votes and reload the poll question/options?')) {
+    hostEmit('host:reset');
+  }
+});
 
 // --- helpers ---------------------------------------------------------------
 
@@ -41,17 +93,12 @@ function fileToDataUrl(file) {
 }
 
 async function uploadImage(file) {
-  if (!(await ensureAuth())) throw new Error('not authorized');
   const dataUrl = await fileToDataUrl(file);
   const res = await fetch('/api/upload', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...adminHeaders() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ dataUrl })
   });
-  if (res.status === 401) {
-    PollAuth.setToken('');
-    throw new Error('not authorized');
-  }
   if (!res.ok) throw new Error('upload failed');
   return (await res.json()).path;
 }
@@ -99,6 +146,11 @@ function addOptionRow(opt = {}, list = optionList, minKeep = 2) {
   iconInput.dataset.image = isImagePath(icon) ? icon : '';
   labelInput.value = opt.label || '';
   renderIconPreview(preview, icon);
+
+  // "End early" toggle: voters who pick this option skip remaining questions.
+  const endBtn = node.querySelector('.opt-end');
+  endBtn.classList.toggle('on', !!opt.end);
+  endBtn.addEventListener('click', () => endBtn.classList.toggle('on'));
 
   iconInput.addEventListener('input', () => {
     iconInput.dataset.image = ''; // typing an emoji clears any uploaded image
@@ -176,7 +228,11 @@ function collectOptions(list = optionList) {
   return [...list.querySelectorAll('.option-row')].map((row) => {
     const iconInput = row.querySelector('.opt-icon');
     const icon = iconInput.dataset.image || iconInput.value.trim();
-    return { label: row.querySelector('.opt-label').value.trim(), icon };
+    return {
+      label: row.querySelector('.opt-label').value.trim(),
+      icon,
+      end: row.querySelector('.opt-end').classList.contains('on')
+    };
   });
 }
 
@@ -223,20 +279,13 @@ $('#form').addEventListener('submit', async (e) => {
   const payload = { logo: logoValue, question, options };
   if (followUps.length) payload.followUps = followUps;
 
-  if (!(await ensureAuth())) return flash('Admin passcode required to save', false);
-
   $('#saveBtn').disabled = true;
   try {
     const res = await fetch('/api/config', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...adminHeaders() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    if (res.status === 401) {
-      PollAuth.setToken('');
-      flash('Passcode expired — try saving again', false);
-      return;
-    }
     const data = await res.json();
     if (res.ok) {
       $('#brandLogo').src = logoValue;
@@ -349,18 +398,10 @@ async function fetchLog() {
 
 $('#logRefresh').addEventListener('click', fetchLog);
 
-// Discover whether a passcode is required, then load the current poll. We
-// prompt for the passcode up front so editing feels unlocked, not blocked.
 async function init() {
-  try {
-    authRequired = (await (await fetch('/api/auth-status')).json()).required;
-  } catch { authRequired = false; }
   await load();
   fetchLog();
   setInterval(fetchLog, 5000); // keep the activity log live
-  // A stored token may have gone stale (server restart) — verify, and show the
-  // passcode modal if we don't hold a valid one.
-  if (authRequired && !(await PollAuth.verify())) PollAuth.requestPasscode();
 }
 
 init().catch(() => flash('Could not load current poll', false));

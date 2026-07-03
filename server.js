@@ -4,7 +4,6 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const http = require('http');
-const crypto = require('crypto');
 const express = require('express');
 const { Server } = require('socket.io');
 const QRCode = require('qrcode');
@@ -12,82 +11,8 @@ const QRCode = require('qrcode');
 const PORT = process.env.PORT || 3000;
 const CONFIG_PATH = path.join(__dirname, 'poll.config.json');
 
-// ---------------------------------------------------------------------------
-// Admin auth (passcode gate)
-//   - A passcode is required for every privileged action: editing the poll
-//     (POST /api/config), uploading images, and the host controls
-//     (open / close / reset). Public read-only surfaces — the host screen, the
-//     live results, the QR code and voting — stay open.
-//   - The passcode comes from the ADMIN_PASSCODE env var; if unset it falls back
-//     to the built-in default below, so the gate is ALWAYS on (you can't ship
-//     an unprotected poll by forgetting to set the var). Override the env var to
-//     rotate it without a code change.
-//   - NOTE: the default below is committed to the repo. If this repo is PUBLIC,
-//     anyone can read it — set ADMIN_PASSCODE in your host (Render/Railway) to a
-//     private value instead, or keep the repo private.
-// State is in-memory, matching the app's single-instance model.
-// ---------------------------------------------------------------------------
-const DEFAULT_PASSCODE = 'firstwave';
-const ADMIN_PASSCODE = (process.env.ADMIN_PASSCODE || DEFAULT_PASSCODE).trim();
-const AUTH_REQUIRED = ADMIN_PASSCODE.length > 0;
-const adminTokens = new Set(); // tokens handed out to authenticated admins
-
-function safeEqual(a, b) {
-  const ab = Buffer.from(String(a));
-  const bb = Buffer.from(String(b));
-  if (ab.length !== bb.length) return false; // length leak is acceptable here
-  return crypto.timingSafeEqual(ab, bb);
-}
-
-function issueToken() {
-  const token = crypto.randomBytes(24).toString('hex');
-  adminTokens.add(token);
-  // Soft cap so a long-lived process can't accumulate tokens without bound.
-  if (adminTokens.size > 200) {
-    adminTokens.delete(adminTokens.values().next().value);
-  }
-  return token;
-}
-
-function validToken(token) {
-  return typeof token === 'string' && token.length > 0 && adminTokens.has(token);
-}
-
-// Express guard for privileged HTTP routes.
-function requireAdmin(req, res, next) {
-  if (!AUTH_REQUIRED) return next();
-  if (validToken(req.get('x-admin-token'))) return next();
-  return res.status(401).json({ error: 'unauthorized' });
-}
-
-// Basic brute-force protection: after 5 failed passcode attempts from one IP,
-// lock that IP out of /api/login for 60 seconds.
-const loginFails = new Map(); // ip -> { count, lockedUntil }
-const LOGIN_MAX_FAILS = 5;
-const LOGIN_LOCK_MS = 60 * 1000;
-
-function loginLocked(ip) {
-  const rec = loginFails.get(ip);
-  if (!rec) return 0;
-  if (rec.lockedUntil && rec.lockedUntil > Date.now()) return rec.lockedUntil - Date.now();
-  return 0;
-}
-function noteLoginFail(ip) {
-  const rec = loginFails.get(ip) || { count: 0, lockedUntil: 0 };
-  rec.count += 1;
-  if (rec.count >= LOGIN_MAX_FAILS) {
-    rec.count = 0;
-    rec.lockedUntil = Date.now() + LOGIN_LOCK_MS;
-  }
-  loginFails.set(ip, rec);
-  if (loginFails.size > 5000) loginFails.clear(); // crude memory cap
-}
-
-// Guard for privileged socket events; the client passes { token } in the payload.
-function socketIsAdmin(payload) {
-  if (!AUTH_REQUIRED) return true;
-  return validToken(payload && payload.token);
-}
+// No authentication: this is an internal tool — the admin page and host
+// controls are open to anyone who can reach the server.
 
 // ---------------------------------------------------------------------------
 // Poll state (in-memory — single active poll, per the PRD's v1 scope)
@@ -102,6 +27,7 @@ function normalizeOptions(list) {
       id: String(i),
       label: String(o.label || ''),
       icon: o.icon ? String(o.icon) : '',
+      end: !!o.end, // if chosen, the voter skips any remaining questions
       votes: 0
     };
   });
@@ -235,6 +161,7 @@ function tallyBlock(question, options) {
       id: o.id,
       label: o.label,
       icon: o.icon,
+      end: !!o.end,
       votes: o.votes,
       percent: total === 0 ? 0 : Math.round((o.votes / total) * 100)
     }))
@@ -297,7 +224,6 @@ const io = new Server(server);
 const UPLOAD_DIR = path.join(__dirname, 'public', 'uploads');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-app.set('trust proxy', 1); // Render/Railway sit behind a proxy — get real IPs
 app.use(express.json({ limit: '6mb' })); // room for base64 image uploads
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -310,37 +236,6 @@ app.get('/vote', (_req, res) =>
 app.get('/admin', (_req, res) =>
   res.sendFile(path.join(__dirname, 'public', 'admin.html'))
 );
-
-// Whether the admin surfaces need a passcode (lets the client show the right UI).
-app.get('/api/auth-status', (_req, res) => {
-  res.json({ required: AUTH_REQUIRED });
-});
-
-// Exchange the passcode for a session token used on privileged requests.
-app.post('/api/login', (req, res) => {
-  if (!AUTH_REQUIRED) return res.json({ ok: true, token: '' });
-  const ip = req.ip || 'unknown';
-  const waitMs = loginLocked(ip);
-  if (waitMs > 0) {
-    return res
-      .status(429)
-      .json({ error: 'too_many_attempts', retryIn: Math.ceil(waitMs / 1000) });
-  }
-  const passcode = String((req.body && req.body.passcode) || '');
-  if (passcode && safeEqual(passcode, ADMIN_PASSCODE)) {
-    loginFails.delete(ip);
-    return res.json({ ok: true, token: issueToken() });
-  }
-  noteLoginFail(ip);
-  return res.status(401).json({ error: 'bad_passcode' });
-});
-
-// Let a page check whether its stored token is still valid (tokens are
-// in-memory, so a server restart invalidates them).
-app.get('/api/verify', (req, res) => {
-  if (!AUTH_REQUIRED) return res.json({ valid: true });
-  res.json({ valid: validToken(req.get('x-admin-token')) });
-});
 
 // Current poll config (raw), for populating the admin form.
 app.get('/api/config', (_req, res) => {
@@ -379,14 +274,15 @@ function cleanOptions(list) {
     ? list
         .map((o) => ({
           label: String((o && o.label) || '').trim(),
-          icon: String((o && o.icon) || '').trim()
+          icon: String((o && o.icon) || '').trim(),
+          end: !!(o && o.end)
         }))
         .filter((o) => o.label)
     : [];
 }
 
 // Save a new poll definition from the admin page, then start a fresh round.
-app.post('/api/config', requireAdmin, (req, res) => {
+app.post('/api/config', (req, res) => {
   const body = req.body || {};
   const question = String(body.question || '').trim();
   const logo = String(body.logo || '/logo.svg').trim() || '/logo.svg';
@@ -442,7 +338,7 @@ const MIME_EXT = {
 };
 
 // Accept a base64 data URL, save it under /public/uploads, return its path.
-app.post('/api/upload', requireAdmin, (req, res) => {
+app.post('/api/upload', (req, res) => {
   const dataUrl = (req.body && req.body.dataUrl) || '';
   const m = /^data:([^;]+);base64,(.+)$/s.exec(dataUrl);
   if (!m || !MIME_EXT[m[1]]) return res.status(400).json({ error: 'bad_image' });
@@ -550,7 +446,9 @@ io.on('connection', (socket) => {
     broadcast();
   });
 
-  // Cancel a previous vote so the device can vote again (decrements the count).
+  // Cancel a previous vote so the device can vote again. Changing a vote
+  // restarts the whole flow, so the device's follow-up answers are wiped too
+  // (decremented) and it will be asked every question again from Q1.
   socket.on('cancel', ({ deviceId } = {}, ack) => {
     const reply = (status) => typeof ack === 'function' && ack(status);
 
@@ -561,13 +459,24 @@ io.on('connection', (socket) => {
     const option = poll.options.find((o) => o.id === prevId);
     if (option && option.votes > 0) option.votes -= 1;
     deviceVotes.delete(deviceId);
+
+    // Undo this device's follow-up answers as well.
+    poll.followUps.forEach((fu, i) => {
+      const key = `${deviceId}|${i}`;
+      const pickedId = followVotes.get(key);
+      if (pickedId != null) {
+        const fuOpt = fu.options.find((o) => o.id === pickedId);
+        if (fuOpt && fuOpt.votes > 0) fuOpt.votes -= 1;
+        followVotes.delete(key);
+      }
+    });
+
     logChange(option ? option.label : String(prevId), deviceId);
     reply({ ok: true });
     broadcast();
   });
 
-  // Host controls (F5). Gated by the admin passcode when one is configured,
-  // so an audience member who opens the host URL can't drive the poll.
+  // Host controls (F5) — open to everyone (internal tool, no passcode).
 
   // Start voting: open-ended (duration 0/absent) or timed (duration seconds,
   // auto-closes when the clock hits zero).
@@ -592,39 +501,20 @@ io.on('connection', (socket) => {
     broadcast();
   }
 
-  // Each host event acks so the page can react (e.g. a stale token after a
-  // server restart re-locks the controls instead of failing silently).
-  function denied(ack) {
-    if (typeof ack === 'function') ack({ ok: false, reason: 'unauthorized' });
-    return true;
-  }
-  function granted(ack) {
-    if (typeof ack === 'function') ack({ ok: true });
-  }
-
-  socket.on('host:start', (payload, ack) => {
-    if (!socketIsAdmin(payload)) return denied(ack);
+  socket.on('host:start', (payload) => {
     startPoll(payload && payload.duration);
-    granted(ack);
   });
   // Back-compat alias (older host pages) — starts open-ended.
-  socket.on('host:open', (payload, ack) => {
-    if (!socketIsAdmin(payload)) return denied(ack);
-    startPoll(0);
-    granted(ack);
-  });
-  socket.on('host:close', (payload, ack) => {
-    if (!socketIsAdmin(payload)) return denied(ack);
+  socket.on('host:open', () => startPoll(0));
+  socket.on('host:close', () => {
     if (phase === 'open') {
       phase = 'closed';
       clearCloseTimer();
       closeSession(); // end the session, snapshotting its final tally
     }
     broadcast();
-    granted(ack);
   });
-  socket.on('host:reset', (payload, ack) => {
-    if (!socketIsAdmin(payload)) return denied(ack);
+  socket.on('host:reset', () => {
     closeSession(); // end the current session before clearing counts
     resetPoll(true); // reload config so edited question/options take effect
     pendingChange.clear();
@@ -633,7 +523,6 @@ io.on('connection', (socket) => {
     startedAt = null;
     endsAt = null;
     broadcast();
-    granted(ack);
   });
 });
 
@@ -641,9 +530,6 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('\n  Live QR Poll is running\n');
   console.log(`  Host / big screen:  http://localhost:${PORT}/  (or ${PUBLIC_ORIGIN}/)`);
   console.log(`  Voter page (QR):    ${VOTER_URL}`);
-  const usingDefault = ADMIN_PASSCODE === DEFAULT_PASSCODE && !process.env.ADMIN_PASSCODE;
-  console.log(
-    `\n  Admin passcode:     ENABLED${usingDefault ? ' (built-in default — set ADMIN_PASSCODE to override)' : ' (from ADMIN_PASSCODE)'}`
-  );
+  console.log('\n  No passcode — internal tool; admin & controls are open.');
   console.log('\n  Open the host page on the projector. Phones scan the QR to vote.\n');
 });
