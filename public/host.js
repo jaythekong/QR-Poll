@@ -11,6 +11,9 @@ const el = {
   statusText: document.getElementById('statusText'),
   qr: document.getElementById('qr'),
   url: document.getElementById('url'),
+  mainDonut: document.getElementById('mainDonut'),
+  mainTotal: document.getElementById('mainTotal'),
+  mainLegend: document.getElementById('mainLegend'),
   resetBtn: document.getElementById('resetBtn'),
   closeBtn: document.getElementById('closeBtn'),
   startBtn: document.getElementById('startBtn'),
@@ -26,8 +29,79 @@ const el = {
 
 // No passcode — internal tool; the controls work for everyone.
 
-const rows = new Map(); // optionId -> { fill, count, pct, label }
-const followBlocks = []; // one { qEl, barsEl, rows } per follow-up question
+// Each question is a donut chart with a colour legend.
+const FU_COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#22c55e', '#06b6d4', '#f43f5e', '#a3e635'];
+const color = (i) => FU_COLORS[i % FU_COLORS.length];
+
+const mainRefs = { ids: '', donut: el.mainDonut, total: el.mainTotal, legend: el.mainLegend, counts: [], pcts: [] };
+const followBlocks = []; // one donut chart per follow-up question
+
+// Build/update one donut + legend. Rebuilds the legend only when options change.
+function renderDonut(refs, options, total) {
+  const ids = options.map((o) => o.id).join(',');
+  if (ids !== refs.ids) {
+    refs.ids = ids;
+    refs.legend.innerHTML = options
+      .map(
+        (o, j) => `<li>
+          <i style="background:${color(j)}"></i>
+          <span class="lg-label">${iconHtml(o.icon)}<span class="lg-text">${escapeHtml(o.label)}</span></span>
+          <b class="lg-count">0</b><span class="lg-pct">0%</span>
+        </li>`
+      )
+      .join('');
+    refs.counts = [...refs.legend.querySelectorAll('.lg-count')];
+    refs.pcts = [...refs.legend.querySelectorAll('.lg-pct')];
+  }
+  options.forEach((o, j) => {
+    refs.counts[j].textContent = o.votes;
+    refs.pcts[j].textContent = o.percent + '%';
+  });
+  refs.total.textContent = total;
+
+  if (total > 0) {
+    let acc = 0;
+    const segs = options
+      .map((o, j) => {
+        const from = acc;
+        acc += (o.votes / total) * 100;
+        return `${color(j)} ${from}% ${acc}%`;
+      })
+      .join(', ');
+    refs.donut.style.background = `conic-gradient(${segs})`;
+  } else {
+    refs.donut.style.background = 'var(--panel-2)';
+  }
+}
+
+// One donut card per follow-up question, laid out side by side below the main.
+function renderFollowUps(fus) {
+  if (followBlocks.length !== fus.length) {
+    el.followBlocks.innerHTML = '';
+    followBlocks.length = 0;
+    for (let i = 0; i < fus.length; i++) {
+      const div = document.createElement('div');
+      div.className = 'followup chart';
+      div.innerHTML = `<h2 class="follow-h"></h2>
+        <div class="donut"><b class="donut-total">0</b></div>
+        <ul class="legend"></ul>`;
+      el.followBlocks.appendChild(div);
+      followBlocks.push({
+        qEl: div.querySelector('.follow-h'),
+        ids: '',
+        donut: div.querySelector('.donut'),
+        total: div.querySelector('.donut-total'),
+        legend: div.querySelector('.legend'),
+        counts: [],
+        pcts: []
+      });
+    }
+  }
+  fus.forEach((fu, i) => {
+    followBlocks[i].qEl.textContent = fu.question;
+    renderDonut(followBlocks[i], fu.options, fu.total);
+  });
+}
 
 // This is the big screen, not a voter — announce so it isn't counted as watching.
 socket.on('connect', () => socket.emit('hello', { role: 'host' }));
@@ -44,71 +118,17 @@ fetch('/api/qr')
   })
   .catch(() => (el.url.textContent = 'Could not generate QR code'));
 
-function buildRows(container, rowMap, options) {
-  container.innerHTML = '';
-  rowMap.clear();
-  for (const o of options) {
-    const row = document.createElement('div');
-    row.className = 'bar-row';
-    row.innerHTML = `
-      <div class="bar-label">${iconHtml(o.icon)}<span class="bl-text">${escapeHtml(o.label)}</span></div>
-      <div class="bar-track"><div class="bar-fill"></div></div>
-      <div class="bar-meta"><span class="count">0</span><span class="pct">0%</span></div>`;
-    container.appendChild(row);
-    rowMap.set(o.id, {
-      label: o.label,
-      fill: row.querySelector('.bar-fill'),
-      count: row.querySelector('.count'),
-      pct: row.querySelector('.pct')
-    });
-  }
-}
-
-// One results block per follow-up question, live-updating like the main bars.
-function renderFollowUps(fus) {
-  if (followBlocks.length !== fus.length) {
-    el.followBlocks.innerHTML = '';
-    followBlocks.length = 0;
-    for (let i = 0; i < fus.length; i++) {
-      const div = document.createElement('div');
-      div.className = 'followup';
-      div.innerHTML = `<h2 class="follow-h"></h2><div class="bars"></div>`;
-      el.followBlocks.appendChild(div);
-      followBlocks.push({
-        qEl: div.querySelector('.follow-h'),
-        barsEl: div.querySelector('.bars'),
-        rows: new Map()
-      });
-    }
-  }
-  fus.forEach((fu, i) => {
-    const b = followBlocks[i];
-    b.qEl.textContent = fu.question;
-    renderBars(b.barsEl, b.rows, fu.options);
-  });
-}
-
-// Rebuild the bar rows only when the option set changes, then update widths.
-function renderBars(container, rowMap, options) {
-  const ids = options.map((o) => o.id).join(',');
-  if (ids !== [...rowMap.keys()].join(',')) buildRows(container, rowMap, options);
-  const max = Math.max(1, ...options.map((o) => o.votes));
-  for (const o of options) {
-    const r = rowMap.get(o.id);
-    if (!r) continue;
-    r.fill.style.width = (o.votes / max) * 100 + '%';
-    r.count.textContent = o.votes;
-    r.pct.textContent = o.percent + '%';
-  }
-}
-
 function render(state) {
   if (el.logo.getAttribute('src') !== state.logo) el.logo.src = state.logo;
   el.question.textContent = state.question;
   el.total.textContent = state.total;
 
-  renderBars(el.bars, rows, state.options);
-  renderFollowUps(state.followUps || []);
+  renderDonut(mainRefs, state.options, state.total);
+  const fus = state.followUps || [];
+  renderFollowUps(fus);
+
+  // Let CSS lay out however many follow-up donuts there are.
+  document.documentElement.style.setProperty('--fus-count', Math.max(1, fus.length));
 
   const phase = state.phase || (state.open ? 'open' : 'closed');
 
