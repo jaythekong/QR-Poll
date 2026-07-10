@@ -23,7 +23,7 @@ if (enabled) {
   }
 }
 
-// Create the table if needed and return the saved state (or null if empty).
+// Create the tables if needed and return the saved state (or null if empty).
 async function init() {
   if (!pool) return null;
   await pool.query(
@@ -33,8 +33,34 @@ async function init() {
        updated_at timestamptz DEFAULT now()
      )`
   );
+  // Uploaded images (option icons, logos, backdrops). Render's disk is
+  // ephemeral, so we keep the bytes here and restore them on boot.
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS poll_uploads (
+       name text PRIMARY KEY,
+       data bytea NOT NULL,
+       created_at timestamptz DEFAULT now()
+     )`
+  );
   const r = await pool.query('SELECT data FROM poll_state WHERE id = 1');
   return r.rows[0] ? r.rows[0].data : null;
+}
+
+// Persist one uploaded file's bytes so it survives redeploys.
+async function saveUpload(name, buffer) {
+  if (!pool) return;
+  await pool.query(
+    `INSERT INTO poll_uploads (name, data) VALUES ($1, $2)
+       ON CONFLICT (name) DO NOTHING`,
+    [name, buffer]
+  );
+}
+
+// Return every stored upload as { name, data:Buffer } for restore-to-disk.
+async function loadUploads() {
+  if (!pool) return [];
+  const r = await pool.query('SELECT name, data FROM poll_uploads');
+  return r.rows;
 }
 
 // Upsert the entire app state into the single row.
@@ -47,4 +73,4 @@ async function save(data) {
   );
 }
 
-module.exports = { enabled, init, save };
+module.exports = { enabled, init, save, saveUpload, loadUploads };

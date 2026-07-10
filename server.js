@@ -664,13 +664,41 @@ app.post('/api/upload', (req, res) => {
   if (!m || !MIME_EXT[m[1]]) return res.status(400).json({ error: 'bad_image' });
   const ext = MIME_EXT[m[1]];
   const name = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const buf = Buffer.from(m[2], 'base64');
   try {
-    fs.writeFileSync(path.join(UPLOAD_DIR, name), Buffer.from(m[2], 'base64'));
+    fs.writeFileSync(path.join(UPLOAD_DIR, name), buf);
   } catch (err) {
     return res.status(500).json({ error: 'save_failed' });
   }
+  // Also persist the bytes so the image survives redeploys (ephemeral disk).
+  if (store.enabled) {
+    store.saveUpload(name, buf).catch((e) => console.error('  [db] saveUpload:', e.message));
+  }
   res.json({ ok: true, path: `/uploads/${name}` });
 });
+
+// Rewrite uploaded files from the DB onto disk, for any that are missing.
+async function restoreUploads() {
+  if (!store.enabled) return;
+  let rows = [];
+  try {
+    rows = await store.loadUploads();
+  } catch (e) {
+    return console.error('  [db] loadUploads failed:', e.message);
+  }
+  let restored = 0;
+  for (const row of rows) {
+    const dest = path.join(UPLOAD_DIR, row.name);
+    if (fs.existsSync(dest)) continue;
+    try {
+      fs.writeFileSync(dest, row.data);
+      restored++;
+    } catch (e) {
+      console.error('  [db] restore upload failed:', row.name, e.message);
+    }
+  }
+  if (restored) console.log(`  Restored ${restored} uploaded image(s) from the database.`);
+}
 
 // Host page fetches the QR code (data URL) for the voter link.
 app.get('/api/qr', async (_req, res) => {
@@ -944,6 +972,7 @@ process.on('SIGINT', flushAndExit);
   if (store.enabled) {
     try {
       const saved = await store.init();
+      await restoreUploads(); // re-materialize uploaded images (Render disk is ephemeral)
       if (saved && saved.config) {
         hydrateState(saved);
         scheduleAutoClose(); // resume a running timed poll, or close if it expired
