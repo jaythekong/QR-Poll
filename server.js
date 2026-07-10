@@ -853,12 +853,19 @@ io.on('connection', (socket) => {
   });
   socket.on('host:reset', () => {
     closeSession(); // end the current session before clearing counts
-    resetPoll(true); // reload config so edited question/options take effect
+    // Reset the ACTIVE library poll (fresh counts, back to standby) — NOT the
+    // committed file default, which would swap the selected poll out.
+    const active = library.find((p) => p.id === activeId);
+    if (active) {
+      applyDef(active);
+    } else {
+      resetPoll(true); // no active poll on record → fall back to the file seed
+      clearCloseTimer();
+      phase = 'standby';
+      startedAt = null;
+      endsAt = null;
+    }
     pendingChange.clear();
-    clearCloseTimer();
-    phase = 'standby'; // back to "press Start" — QR hidden until then
-    startedAt = null;
-    endsAt = null;
     broadcast();
     persist();
   });
