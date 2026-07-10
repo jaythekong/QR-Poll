@@ -26,6 +26,67 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Ambient background: slow drifting glow orbs so the screen feels alive */
+.ambient {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.ambient .orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(70px);
+  opacity: 0.5;
+  will-change: transform;
+}
+.orb-1 {
+  width: 46vw; height: 46vw;
+  top: -12vw; left: -8vw;
+  background: radial-gradient(circle at 30% 30%, rgba(99, 102, 241, 0.55), transparent 70%);
+  animation: drift1 26s ease-in-out infinite;
+}
+.orb-2 {
+  width: 40vw; height: 40vw;
+  bottom: -14vw; right: -6vw;
+  background: radial-gradient(circle at 40% 40%, rgba(236, 72, 153, 0.45), transparent 70%);
+  animation: drift2 32s ease-in-out infinite;
+}
+.orb-3 {
+  width: 34vw; height: 34vw;
+  top: 30%; right: 12%;
+  background: radial-gradient(circle at 50% 50%, rgba(139, 92, 246, 0.4), transparent 70%);
+  animation: drift3 38s ease-in-out infinite;
+}
+.orb-4 {
+  width: 30vw; height: 30vw;
+  bottom: 8%; left: 22%;
+  background: radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.3), transparent 70%);
+  animation: drift4 30s ease-in-out infinite;
+}
+@keyframes drift1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%      { transform: translate(8vw, 6vw) scale(1.12); }
+}
+@keyframes drift2 {
+  0%, 100% { transform: translate(0, 0) scale(1.05); }
+  50%      { transform: translate(-7vw, -5vw) scale(0.92); }
+}
+@keyframes drift3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%      { transform: translate(-6vw, 7vw) scale(1.1); }
+}
+@keyframes drift4 {
+  0%, 100% { transform: translate(0, 0) scale(0.95); }
+  50%      { transform: translate(6vw, -6vw) scale(1.08); }
+}
+/* Keep all real content above the ambient layer */
+.host, .cd-screen { position: relative; z-index: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .ambient .orb { animation: none; }
+}
+
 .logo { height: 48px; width: auto; color: var(--ink); }
 
 .pill {
