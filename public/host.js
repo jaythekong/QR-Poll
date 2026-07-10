@@ -4,14 +4,12 @@ const socket = io();
 
 const el = {
   logo: document.getElementById('logo'),
-  question: document.getElementById('question'),
   bars: document.getElementById('bars'),
   total: document.getElementById('total'),
   status: document.getElementById('status'),
   statusText: document.getElementById('statusText'),
   qr: document.getElementById('qr'),
   url: document.getElementById('url'),
-  mainChart: document.getElementById('mainChart'),
   resetBtn: document.getElementById('resetBtn'),
   closeBtn: document.getElementById('closeBtn'),
   startBtn: document.getElementById('startBtn'),
@@ -42,8 +40,7 @@ const el = {
 const FU_COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#22c55e', '#06b6d4', '#f43f5e', '#a3e635'];
 const color = (i) => FU_COLORS[i % FU_COLORS.length];
 
-const mainChart = { container: el.mainChart, key: '', els: null };
-const followBlocks = []; // one chart controller per follow-up question
+const followBlocks = []; // one chart controller per question card
 
 // (Re)build a chart's DOM for the given type + options; store element refs.
 function buildChart(refs, options, type, hasHeading) {
@@ -122,19 +119,20 @@ function drawChart(refs, options, total, type, questionText) {
   }
 }
 
-// One chart card per follow-up question, laid out below the main.
-function renderFollowUps(fus, type) {
-  if (followBlocks.length !== fus.length) {
+// One equal chart card per question — the main question first, then each
+// follow-up — all sharing the same responsive grid.
+function renderQuestions(questions, type) {
+  if (followBlocks.length !== questions.length) {
     el.followBlocks.innerHTML = '';
     followBlocks.length = 0;
-    for (let i = 0; i < fus.length; i++) {
+    for (let i = 0; i < questions.length; i++) {
       const div = document.createElement('div');
       div.className = 'followup chart';
       el.followBlocks.appendChild(div);
       followBlocks.push({ container: div, key: '', els: null });
     }
   }
-  fus.forEach((fu, i) => drawChart(followBlocks[i], fu.options, fu.total, type, fu.question));
+  questions.forEach((q, i) => drawChart(followBlocks[i], q.options, q.total, type, q.question));
 }
 
 // This is the big screen, not a voter — announce so it isn't counted as watching.
@@ -154,16 +152,19 @@ fetch('/api/qr')
 
 function render(state) {
   if (el.logo.getAttribute('src') !== state.logo) el.logo.src = state.logo;
-  el.question.textContent = state.question;
   el.total.textContent = state.total;
 
   const chartType = state.chartType === 'bar' ? 'bar' : 'donut';
-  drawChart(mainChart, state.options, state.total, chartType); // no heading (the <h1> is the question)
   const fus = state.followUps || [];
-  renderFollowUps(fus, chartType);
+  // The main question is just the first card; follow-ups are equal cards after it.
+  const questions = [
+    { question: state.question, options: state.options, total: state.total },
+    ...fus
+  ];
+  renderQuestions(questions, chartType);
 
-  // Let CSS lay out however many follow-up charts there are.
-  document.documentElement.style.setProperty('--fus-count', Math.max(1, fus.length));
+  // Let CSS lay out however many question cards there are.
+  document.documentElement.style.setProperty('--fus-count', questions.length);
 
   const phase = state.phase || (state.open ? 'open' : 'closed');
 
