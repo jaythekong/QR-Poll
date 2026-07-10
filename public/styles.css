@@ -660,11 +660,6 @@ html, body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.follow-h::before {
-  content: "Follow-up · ";
-  color: var(--muted);
-  font-weight: 600;
-}
 .followup .donut { height: clamp(78px, 17vh, 150px); }
 .followup .donut-total { font-size: clamp(16px, 3vh, 26px); }
 .followup .legend { gap: clamp(4px, 1vh, 10px); align-content: center; }
