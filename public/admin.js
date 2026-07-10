@@ -183,6 +183,21 @@ function renderScreen(s) {
 $('#showPollBtn').addEventListener('click', () => socket.emit('screen:set', { mode: 'poll' }));
 $('#showCountdownBtn').addEventListener('click', () => socket.emit('screen:set', { mode: 'countdown' }));
 
+// Scale the big-screen preview iframe (rendered at 1280x720) to fit its card.
+(function setupPreview() {
+  const frame = document.querySelector('.screen-preview-frame');
+  const iframe = $('#previewFrame');
+  if (!frame || !iframe) return;
+  const scale = () => {
+    const w = frame.clientWidth;
+    if (w) iframe.style.transform = 'scale(' + (w / 1280) + ')';
+  };
+  window.addEventListener('resize', scale);
+  if (window.ResizeObserver) new ResizeObserver(scale).observe(frame);
+  iframe.addEventListener('load', scale);
+  scale();
+})();
+
 function applyDuration() {
   const min = Math.max(0, Number($('#cdMin').value) || 0);
   const sec = Math.min(59, Math.max(0, Number($('#cdSec').value) || 0));

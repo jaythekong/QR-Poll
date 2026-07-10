@@ -19,9 +19,35 @@
     </header>
 
     <h1 class="admin-title">Set up your poll</h1>
-    <p class="admin-sub">Add an icon and a name for the poll and for each option. Saving stores the poll and resets counts — it goes live when you press Start below.</p>
+    <p class="admin-sub">Manage your polls, drive the big screen, and set a countdown — all from here.</p>
 
-    <!-- Poll controls (the big screen is display-only) -->
+    <!-- Big screen: what the projector shows (top) -->
+    <section class="card bigscreen-card">
+      <div class="ctrl-head">
+        <h2>Big screen</h2>
+        <span class="pill" id="screenPill"><span id="screenText">Poll</span></span>
+      </div>
+      <div class="seg" role="tablist">
+        <button type="button" class="seg-btn active" id="showPollBtn">📊 Poll</button>
+        <button type="button" class="seg-btn" id="showCountdownBtn">⏱ Countdown</button>
+      </div>
+      <div class="screen-preview-frame">
+        <iframe id="previewFrame" src="/" title="Big screen preview" scrolling="no" tabindex="-1"></iframe>
+      </div>
+      <p class="hint">Live preview of the big screen (<a href="/" target="_blank">open full ↗</a>).</p>
+    </section>
+
+    <!-- Poll library -->
+    <section class="card lib-card">
+      <div class="lib-head">
+        <h2>Poll library</h2>
+        <button type="button" class="btn ghost" id="newPollBtn">+ New poll</button>
+      </div>
+      <p class="hint">Save several polls and switch between them. <b>Put on screen</b> makes one live (resets its votes).</p>
+      <div id="pollList" class="poll-list"></div>
+    </section>
+
+    <!-- Poll controls (under the library) -->
     <section class="card ctrl-card">
       <div class="ctrl-head">
         <h2>Poll controls</h2>
@@ -43,17 +69,9 @@
       <p class="hint">The big screen (<a href="/" target="_blank">/</a>) only displays — start, close, and reset the poll from here.</p>
     </section>
 
-    <!-- Big screen mode + countdown -->
-    <section class="card screen-card">
-      <div class="ctrl-head">
-        <h2>Big screen</h2>
-        <span class="pill" id="screenPill"><span id="screenText">Poll</span></span>
-      </div>
-      <div class="seg" role="tablist">
-        <button type="button" class="seg-btn active" id="showPollBtn">📊 Poll</button>
-        <button type="button" class="seg-btn" id="showCountdownBtn">⏱ Countdown</button>
-      </div>
-
+    <!-- Countdown timer (its own card) -->
+    <section class="card countdown-card">
+      <div class="ctrl-head"><h2>Countdown</h2></div>
       <div id="cdPanel" class="cd-panel">
         <div class="field">
           <label>Countdown length</label>
@@ -110,16 +128,6 @@
           </div>
         </div>
       </div>
-    </section>
-
-    <!-- Poll library -->
-    <section class="card lib-card">
-      <div class="lib-head">
-        <h2>Poll library</h2>
-        <button type="button" class="btn ghost" id="newPollBtn">+ New poll</button>
-      </div>
-      <p class="hint">Save several polls and switch between them. <b>Put on screen</b> makes one live (resets its votes).</p>
-      <div id="pollList" class="poll-list"></div>
     </section>
 
     <form id="form" class="card">
