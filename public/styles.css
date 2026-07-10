@@ -645,35 +645,38 @@ html, body {
   min-height: 0;
   overflow-y: auto;
 }
+/* Each card stacks vertically: heading, donut, then a full-width legend so
+   option labels get the whole card width instead of a cramped side column. */
 .followup {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 16px;
-  padding: clamp(10px, 1.8vh, 20px) clamp(12px, 1.6vw, 22px);
+  padding: clamp(12px, 1.8vh, 20px) clamp(14px, 1.6vw, 22px);
   min-width: 0;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
-  align-items: center;
-  gap: clamp(6px, 1.2vh, 12px) clamp(12px, 1.6vw, 22px);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: clamp(8px, 1.4vh, 16px);
 }
 .follow-h {
-  grid-column: 1 / -1;
-  font-size: clamp(13px, 2.1vh, 22px);
+  font-size: clamp(14px, 2.1vh, 22px);
   font-weight: 750;
   letter-spacing: -0.01em;
   margin: 0;
   color: var(--ink);
-  white-space: nowrap;
+  line-height: 1.15;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
-.followup .donut { height: clamp(78px, 17vh, 150px); }
+.followup .donut { height: clamp(84px, 15vh, 140px); align-self: center; }
 .followup .donut-total { font-size: clamp(16px, 3vh, 26px); }
-.followup .legend { gap: clamp(4px, 1vh, 10px); align-content: center; }
-.followup .legend li { font-size: clamp(12px, 2vh, 18px); }
-.followup .lg-label .opt-ico { width: clamp(14px, 2.2vh, 24px); height: clamp(14px, 2.2vh, 24px); }
-.followup .lg-label .opt-ico.glyph { font-size: clamp(12px, 1.9vh, 20px); }
+.followup .legend { width: 100%; gap: clamp(6px, 1.2vh, 12px); align-content: center; }
+.followup .legend li { font-size: clamp(13px, 1.9vh, 19px); }
+.followup .lg-label .opt-ico { width: clamp(16px, 2.2vh, 24px); height: clamp(16px, 2.2vh, 24px); }
+.followup .lg-label .opt-ico.glyph { font-size: clamp(14px, 1.9vh, 20px); }
 .followup .lg-pct { font-size: 0.82em; }
 
 @media (max-width: 880px) {
