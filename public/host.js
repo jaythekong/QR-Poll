@@ -71,7 +71,7 @@ function buildChart(refs, options, type, hasHeading) {
     const legend = options
       .map(
         (o, j) => `<li>
-          <i style="background:${color(j)}"></i>
+          ${o.icon ? '' : `<i style="background:${color(j)}"></i>`}
           <span class="lg-label">${iconHtml(o.icon)}<span class="lg-text">${escapeHtml(o.label)}</span></span>
           <b class="lg-count">0</b><span class="lg-pct">0%</span>
         </li>`
