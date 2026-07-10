@@ -89,7 +89,9 @@ const cd = {
   remainingMs: 300000, // remaining while idle/paused
   running: false,
   backdrop: '', // image path, or '' for a plain background
-  showLogo: true // show the logo on the countdown screen
+  showLogo: true, // show the logo on the countdown screen
+  buddy: false, // show the animated pixel character
+  buddySprite: '' // character image path
 };
 function cdSetDuration(sec) {
   cd.durationSec = Math.min(24 * 3600, Math.max(0, Math.round(Number(sec) || 0)));
@@ -278,7 +280,7 @@ function serializeState() {
     startedAt,
     endsAt,
     screen,
-    cd: { durationSec: cd.durationSec, endsAt: cd.endsAt, remainingMs: cd.remainingMs, running: cd.running, backdrop: cd.backdrop, showLogo: cd.showLogo },
+    cd: { durationSec: cd.durationSec, endsAt: cd.endsAt, remainingMs: cd.remainingMs, running: cd.running, backdrop: cd.backdrop, showLogo: cd.showLogo, buddy: cd.buddy, buddySprite: cd.buddySprite },
     deviceVotes: [...deviceVotes],
     followVotes: [...followVotes],
     sessions
@@ -307,6 +309,8 @@ function hydrateState(s) {
     cd.running = !!s.cd.running;
     cd.backdrop = typeof s.cd.backdrop === 'string' ? s.cd.backdrop : '';
     cd.showLogo = s.cd.showLogo !== false;
+    cd.buddy = !!s.cd.buddy;
+    cd.buddySprite = typeof s.cd.buddySprite === 'string' ? s.cd.buddySprite : '';
   }
   deviceVotes.clear();
   (s.deviceVotes || []).forEach(([k, v]) => deviceVotes.set(k, v));
@@ -380,7 +384,9 @@ function publicState() {
       running: cd.running,
       endsAt: cd.endsAt,
       remainingMs: cd.remainingMs,
-      showLogo: cd.showLogo
+      showLogo: cd.showLogo,
+      buddy: cd.buddy,
+      buddySprite: cd.buddySprite
     }
   };
 }
@@ -890,6 +896,17 @@ io.on('connection', (socket) => {
   });
   socket.on('cd:logo', ({ show } = {}) => {
     cd.showLogo = !!show;
+    broadcast();
+    persist();
+  });
+  socket.on('cd:buddy', ({ show } = {}) => {
+    cd.buddy = !!show;
+    broadcast();
+    persist();
+  });
+  socket.on('cd:sprite', ({ path } = {}) => {
+    cd.buddySprite = typeof path === 'string' ? path : '';
+    if (cd.buddySprite) cd.buddy = true; // uploading a sprite turns the buddy on
     broadcast();
     persist();
   });

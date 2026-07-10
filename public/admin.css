@@ -216,6 +216,19 @@ input[type="text"]::placeholder { color: #6b7494; }
 }
 .backdrop-actions { display: grid; gap: 8px; align-content: center; }
 .backdrop-actions .btn { justify-self: start; }
+.buddy-preview {
+  width: 80px;
+  height: 110px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center bottom;
+  flex: none;
+}
+.buddy-preview.empty {
+  background: repeating-linear-gradient(45deg, var(--bg), var(--bg) 10px, var(--panel) 10px, var(--panel) 20px);
+}
 
 /* ------------------------------- Poll library ------------------------------ */
 

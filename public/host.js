@@ -32,7 +32,9 @@ const el = {
   cdDone: document.getElementById('cdDone'),
   cdScreenStart: document.getElementById('cdScreenStart'),
   cdScreenPause: document.getElementById('cdScreenPause'),
-  cdScreenReset: document.getElementById('cdScreenReset')
+  cdScreenReset: document.getElementById('cdScreenReset'),
+  cdBuddy: document.getElementById('cdBuddy'),
+  cdConfetti: document.getElementById('cdConfetti')
 };
 
 // No passcode — internal tool; the controls work for everyone.
@@ -183,6 +185,13 @@ function render(state) {
   el.cdScreenPause.classList.toggle('hidden', !c.running);
   tickCd();
 
+  // Pixel character (animated on the countdown screen).
+  const wantBuddy = scr === 'countdown' && c.buddy && c.buddySprite;
+  setBuddySprite(c.buddySprite || '');
+  el.cdBuddy.classList.toggle('hidden', !wantBuddy);
+  el.cdConfetti.classList.toggle('hidden', scr !== 'countdown');
+  buddyEnabled = !!wantBuddy;
+
   // Start/Close controls per phase.
   el.closeBtn.classList.toggle('hidden', phase !== 'open');
   el.startBtn.classList.toggle('hidden', phase === 'open');
@@ -233,6 +242,212 @@ function tickCd() {
   el.cdDone.classList.toggle('hidden', !(done && running));
 }
 setInterval(tickCd, 200);
+
+// Load the buddy sprite and knock out a white/near-white background via a
+// flood-fill from the edges (so interior whites like shoes/lanyard survive).
+let buddySpriteRaw = null;
+let buddyIsGif = false;
+function setBuddySprite(path) {
+  if (path === buddySpriteRaw) return;
+  buddySpriteRaw = path;
+  if (!path) {
+    el.cdBuddy.removeAttribute('src');
+    return;
+  }
+  // Animated GIFs play themselves — use directly (canvas processing would
+  // freeze them to a single frame). They usually carry their own transparency.
+  buddyIsGif = /\.gif(\?|$)/i.test(path);
+  if (buddyIsGif) {
+    el.cdBuddy.src = path;
+    return;
+  }
+  const img = new Image();
+  img.onload = () => {
+    try {
+      el.cdBuddy.src = removeWhiteBackground(img);
+    } catch {
+      el.cdBuddy.src = path; // fallback if the canvas is tainted
+    }
+  };
+  img.onerror = () => (el.cdBuddy.src = path);
+  img.src = path;
+}
+
+function removeWhiteBackground(img) {
+  const w = img.naturalWidth;
+  const h = img.naturalHeight;
+  const cv = document.createElement('canvas');
+  cv.width = w;
+  cv.height = h;
+  const cx = cv.getContext('2d');
+  cx.drawImage(img, 0, 0);
+  const id = cx.getImageData(0, 0, w, h);
+  const d = id.data;
+  const near = (i) => d[i] > 232 && d[i + 1] > 232 && d[i + 2] > 232 && d[i + 3] > 8;
+  const seen = new Uint8Array(w * h);
+  const stack = [];
+  for (let x = 0; x < w; x++) { stack.push(x, 0, x, h - 1); }
+  for (let y = 0; y < h; y++) { stack.push(0, y, w - 1, y); }
+  while (stack.length) {
+    const y = stack.pop();
+    const x = stack.pop();
+    if (x < 0 || y < 0 || x >= w || y >= h) continue;
+    const p = y * w + x;
+    if (seen[p]) continue;
+    seen[p] = 1;
+    if (!near(p * 4)) continue;
+    d[p * 4 + 3] = 0;
+    stack.push(x + 1, y, x - 1, y, x, y + 1, x, y - 1);
+  }
+  cx.putImageData(id, 0, 0);
+  return cv.toDataURL('image/png');
+}
+
+// --- pixel character animator -------------------------------------------------
+// Whole-sprite animation: the buddy walks the ground, bobs, jumps, exercises,
+// rests when paused, and celebrates (with confetti) when the timer hits zero.
+let buddyEnabled = false;
+const buddy = {
+  x: 0.5, // fraction of width
+  face: 1, // 1 = right, -1 = left
+  speed: 0.033, // fraction of width per second (slow, gentle stroll)
+  y: 0, // px above ground (for jumps/bounces)
+  vy: 0,
+  squash: 1, // scaleY
+  state: 'walk',
+  stateT: 0,
+  nextAt: 3
+};
+const GRAV = 1900; // px/s^2 — lower = floatier, slower jumps
+const confetti = [];
+
+function buddyPickState(excited) {
+  const r = Math.random();
+  if (excited) {
+    buddy.state = r < 0.45 ? 'jump' : r < 0.75 ? 'exercise' : 'walk';
+    buddy.nextAt = 1.4 + Math.random() * 1.2;
+  } else {
+    // Calm: mostly walk/idle, the occasional jump or exercise.
+    buddy.state = r < 0.5 ? 'walk' : r < 0.75 ? 'idle' : r < 0.9 ? 'jump' : 'exercise';
+    buddy.nextAt = 3 + Math.random() * 3.5;
+  }
+  buddy.stateT = 0;
+  if (buddy.state === 'jump' && buddy.y <= 0) buddy.vy = 700 + Math.random() * 180;
+}
+
+function spawnConfetti(w) {
+  const colors = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#22c55e', '#06b6d4'];
+  for (let i = 0; i < 40; i++) {
+    confetti.push({
+      x: Math.random() * w,
+      y: -10,
+      vx: (Math.random() - 0.5) * 240,
+      vy: 120 + Math.random() * 260,
+      s: 5 + Math.random() * 7,
+      rot: Math.random() * Math.PI,
+      vr: (Math.random() - 0.5) * 10,
+      color: colors[(Math.random() * colors.length) | 0],
+      life: 2.6
+    });
+  }
+}
+
+let buddyLast = performance.now();
+function animateBuddy(nowT) {
+  const dt = Math.min(0.05, (nowT - buddyLast) / 1000);
+  buddyLast = nowT;
+  const screenEl = el.countdownScreen;
+  const shown = buddyEnabled && !screenEl.classList.contains('hidden');
+
+  // Confetti canvas
+  const cv = el.cdConfetti;
+  const W = screenEl.clientWidth || window.innerWidth;
+  const H = screenEl.clientHeight || window.innerHeight;
+  if (cv.width !== W) cv.width = W;
+  if (cv.height !== H) cv.height = H;
+
+  if (shown) {
+    // Situation from the timer.
+    const remaining = cdRef.running && cdRef.endsAt
+      ? cdRef.endsAt - (Date.now() + serverOffset)
+      : cdRef.remainingMs || 0;
+    const done = remaining <= 0 && (cdRef.running || cdRef.durationSec > 0);
+    const excited = cdRef.running && remaining > 0 && remaining <= 10000;
+
+    // Behaviour: pace slowly back and forth while running; rest when paused;
+    // celebrate at zero.
+    if (done && cdRef.running) buddy.state = 'celebrate';
+    else if (!cdRef.running) buddy.state = 'rest';
+    else buddy.state = 'walk';
+
+    const s = buddy.state;
+    const t = nowT / 1000;
+    if (s === 'walk') {
+      buddy.x += buddy.speed * buddy.face * dt;
+      if (buddy.x <= 0.08) { buddy.x = 0.08; buddy.face = 1; } // turn around at edges
+      if (buddy.x >= 0.92) { buddy.x = 0.92; buddy.face = -1; }
+      buddy.squash = 1 + Math.sin(t * 4.5) * 0.02;
+      buddy.y = Math.abs(Math.sin(t * 4.5)) * 3;
+    } else if (s === 'idle') {
+      buddy.squash = 1 + Math.sin(t * 1.7) * 0.02;
+      buddy.y = 0;
+    } else if (s === 'exercise') {
+      buddy.y = Math.abs(Math.sin(t * 6)) * 18;
+      buddy.squash = 1 - Math.cos(t * 6) * 0.045;
+    } else if (s === 'rest') {
+      buddy.squash += (0.86 - buddy.squash) * Math.min(1, dt * 6);
+      buddy.y += (0 - buddy.y) * Math.min(1, dt * 6);
+    } else if (s === 'jump' || s === 'celebrate') {
+      buddy.vy -= GRAV * dt;
+      buddy.y += buddy.vy * dt;
+      if (buddy.y <= 0) {
+        buddy.y = 0;
+        if (s === 'celebrate') buddy.vy = 780 + Math.random() * 160; // keep hopping
+        else { buddy.state = 'walk'; buddy.vy = 0; }
+      }
+      buddy.squash = buddy.y > 2 ? 1.06 : 0.94;
+    }
+
+    // Confetti bursts during celebration.
+    if (s === 'celebrate') {
+      buddy._cf = (buddy._cf || 0) - dt;
+      if (buddy._cf <= 0) { spawnConfetti(W); buddy._cf = 0.7; }
+    }
+
+    // Position the sprite (origin bottom-centre for squash + facing flip).
+    // For a GIF, don't apply squash — it would distort the sprite's own frames.
+    const groundBottom = H * 0.05;
+    const sq = buddyIsGif ? 1 : buddy.squash;
+    // The sprite's art faces the opposite way to our movement sign, so negate
+    // it — the character faces the direction it's actually walking.
+    el.cdBuddy.style.left = buddy.x * W + 'px';
+    el.cdBuddy.style.bottom = groundBottom + buddy.y + 'px';
+    el.cdBuddy.style.transform = `translateX(-50%) scaleX(${-buddy.face}) scaleY(${sq})`;
+  }
+
+  // Draw confetti (independent of buddy so the burst finishes).
+  const ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  for (let i = confetti.length - 1; i >= 0; i--) {
+    const p = confetti[i];
+    p.vy -= 0; // gravity pulls down (screen y grows down): keep falling
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.rot += p.vr * dt;
+    p.life -= dt;
+    if (p.life <= 0 || p.y > H + 20) { confetti.splice(i, 1); continue; }
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rot);
+    ctx.globalAlpha = Math.min(1, p.life);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(-p.s / 2, -p.s / 2, p.s, p.s * 0.6);
+    ctx.restore();
+  }
+
+  requestAnimationFrame(animateBuddy);
+}
+requestAnimationFrame(animateBuddy);
 
 let lastState = null;
 socket.on('state', (state) => {

@@ -79,6 +79,24 @@
           <input type="checkbox" id="cdShowLogo" checked />
           <span>Show logo on countdown screen</span>
         </label>
+
+        <div class="field">
+          <label>Pixel character <span class="muted">— walks & jumps on the countdown</span></label>
+          <label class="cd-toggle">
+            <input type="checkbox" id="cdShowBuddy" />
+            <span>Show pixel character</span>
+          </label>
+          <div class="backdrop-row">
+            <div class="buddy-preview" id="cdBuddyPreview"></div>
+            <div class="backdrop-actions">
+              <input type="file" id="cdBuddyFile" accept="image/*" hidden />
+              <button type="button" class="btn" id="cdBuddyUploadBtn">Upload character</button>
+              <button type="button" class="btn ghost" id="cdBuddyRemoveBtn">Remove</button>
+              <p class="hint">A transparent PNG works best (character on a see-through background).</p>
+            </div>
+          </div>
+        </div>
+
         <div class="field">
           <label>Backdrop photo <span class="muted">— shown behind the countdown</span></label>
           <div class="backdrop-row">

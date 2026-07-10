@@ -160,6 +160,13 @@ function renderScreen(s) {
   $('#cdStartBtn').classList.toggle('hidden', c.running);
   $('#cdPauseBtn').classList.toggle('hidden', !c.running);
   if (document.activeElement !== $('#cdShowLogo')) $('#cdShowLogo').checked = c.showLogo !== false;
+  if (document.activeElement !== $('#cdShowBuddy')) $('#cdShowBuddy').checked = !!c.buddy;
+  const sp = c.buddySprite || '';
+  if ($('#cdBuddyPreview').dataset.sp !== sp) {
+    $('#cdBuddyPreview').dataset.sp = sp;
+    $('#cdBuddyPreview').style.backgroundImage = sp ? `url("${sp}")` : '';
+    $('#cdBuddyPreview').classList.toggle('empty', !sp);
+  }
   tickCdRemain();
 
   // Backdrop preview (only overwrite when it changes, so we don't fight typing).
@@ -211,6 +218,20 @@ $('#cdBackdropFile').addEventListener('change', async (e) => {
 });
 $('#cdBackdropRemoveBtn').addEventListener('click', () => socket.emit('cd:backdrop', { path: '' }));
 $('#cdShowLogo').addEventListener('change', (e) => socket.emit('cd:logo', { show: e.target.checked }));
+$('#cdShowBuddy').addEventListener('change', (e) => socket.emit('cd:buddy', { show: e.target.checked }));
+$('#cdBuddyUploadBtn').addEventListener('click', () => $('#cdBuddyFile').click());
+$('#cdBuddyFile').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const path = await uploadImage(file);
+    socket.emit('cd:sprite', { path }); // turns the buddy on server-side
+  } catch {
+    flash('Character upload failed', false);
+  }
+  e.target.value = '';
+});
+$('#cdBuddyRemoveBtn').addEventListener('click', () => socket.emit('cd:sprite', { path: '' }));
 
 // --- helpers ---------------------------------------------------------------
 

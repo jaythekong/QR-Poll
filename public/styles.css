@@ -461,6 +461,24 @@ html, body {
   letter-spacing: -0.01em;
   color: #ffd7dd;
 }
+.cd-buddy {
+  position: absolute;
+  z-index: 3;
+  height: clamp(64px, 13vh, 150px);
+  width: auto;
+  transform-origin: 50% 100%;
+  image-rendering: pixelated;
+  pointer-events: none;
+  filter: drop-shadow(0 8px 10px rgba(0, 0, 0, 0.45));
+  will-change: left, bottom, transform;
+}
+.cd-confetti {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
 .cd-controls {
   position: absolute;
   bottom: clamp(20px, 4vh, 48px);
