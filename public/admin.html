@@ -123,6 +123,7 @@
     </section>
 
     <form id="form" class="card">
+      <button type="button" class="btn ghost editor-back" id="editorBack">← Back to polls</button>
       <div class="editor-head">
         <h2 id="editorTitle">Edit poll</h2>
         <span class="editing-active hidden" id="editingActive">● on screen now</span>
@@ -148,6 +149,14 @@
       <div class="field">
         <label for="question">Question</label>
         <input type="text" id="question" placeholder="e.g. Which model do you prefer?" maxlength="160" />
+      </div>
+
+      <div class="field">
+        <label>Results chart <span class="muted">— how this poll's results show on the big screen</span></label>
+        <div class="seg" id="chartTypeSeg">
+          <button type="button" class="seg-btn active" data-chart="donut" id="chartDonutBtn">◉ Donut</button>
+          <button type="button" class="seg-btn" data-chart="bar" id="chartBarBtn">▮ Bar</button>
+        </div>
       </div>
 
       <!-- Options -->

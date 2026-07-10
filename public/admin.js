@@ -342,7 +342,7 @@ makeSortable(optionList, '.option-row'); // reorder the main question's options
 // --- follow-up question blocks (max 2 → 3 questions total) -------------------
 
 const followList = $('#followList');
-const MAX_FOLLOWUPS = 2;
+const MAX_FOLLOWUPS = 20; // effectively no limit
 
 function updateFollowAddBtn() {
   $('#addFollowUp').classList.toggle('hidden', followList.children.length >= MAX_FOLLOWUPS);
@@ -408,9 +408,20 @@ function flash(text, ok) {
 let editingId = null; // library poll currently in the editor (null = new/unsaved)
 let activeLiveId = null; // library poll currently on screen
 
+// Chart-type segmented control (donut / bar).
+let chartType = 'donut';
+function setChartType(t) {
+  chartType = t === 'bar' ? 'bar' : 'donut';
+  $('#chartDonutBtn').classList.toggle('active', chartType === 'donut');
+  $('#chartBarBtn').classList.toggle('active', chartType === 'bar');
+}
+$('#chartDonutBtn').addEventListener('click', () => setChartType('donut'));
+$('#chartBarBtn').addEventListener('click', () => setChartType('bar'));
+
 // Fill the editor form from a poll definition.
 function fillEditor(def) {
   $('#pollNameInput').value = def.name || '';
+  setChartType(def.chartType === 'bar' ? 'bar' : 'donut');
   setLogo(def.logo);
   $('#brandLogo').src = def.logo || '/logo.svg';
   $('#question').value = def.question || '';
@@ -423,13 +434,26 @@ function fillEditor(def) {
   updateFollowAddBtn();
 }
 
+// Switch between the poll list and the focused editor screen.
+function openEditor() {
+  $('.admin').classList.add('editing');
+  window.scrollTo(0, 0);
+}
+function closeEditor() {
+  $('.admin').classList.remove('editing');
+  window.scrollTo(0, 0);
+}
+
 function clearEditor() {
   editingId = null;
   fillEditor({ name: '', logo: '/logo.svg', question: '', options: [{}, {}], followUps: [] });
   $('#editorTitle').textContent = 'New poll';
   $('#editingActive').classList.add('hidden');
   renderPollList(lastLibrary);
-  $('#question').focus();
+}
+
+function editPoll(id) {
+  return loadPoll(id).then(openEditor);
 }
 
 // Validate the form and build the payload, or flash an error and return null.
@@ -444,7 +468,7 @@ function buildPayload() {
       return flash('Each follow-up needs a question and at least 2 options', false), null;
     }
   }
-  const payload = { name: $('#pollNameInput').value.trim() || question, logo: logoValue, question, options };
+  const payload = { name: $('#pollNameInput').value.trim() || question, logo: logoValue, question, chartType, options };
   if (followUps.length) payload.followUps = followUps;
   return payload;
 }
@@ -474,7 +498,7 @@ function renderPollList(data) {
       </div>`;
     })
     .join('');
-  $('#pollList').querySelectorAll('.pi-edit').forEach((b) => b.addEventListener('click', () => loadPoll(b.dataset.id)));
+  $('#pollList').querySelectorAll('.pi-edit').forEach((b) => b.addEventListener('click', () => editPoll(b.dataset.id)));
   $('#pollList').querySelectorAll('.pi-activate').forEach((b) => b.addEventListener('click', () => activatePoll(b.dataset.id)));
   $('#pollList').querySelectorAll('.pi-dup').forEach((b) => b.addEventListener('click', () => duplicatePoll(b.dataset.id)));
   $('#pollList').querySelectorAll('.pi-del').forEach((b) => b.addEventListener('click', () => deletePoll(b.dataset.id)));
@@ -518,7 +542,6 @@ async function loadPoll(id) {
   $('#editorTitle').textContent = 'Edit poll';
   $('#editingActive').classList.toggle('hidden', id !== activeLiveId);
   renderPollList(lastLibrary);
-  $('#form').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function savePoll(activate) {
@@ -545,6 +568,7 @@ async function savePoll(activate) {
     }
     await refreshList();
     $('#editingActive').classList.toggle('hidden', editingId !== activeLiveId);
+    closeEditor(); // return to the poll list after saving
   } catch {
     flash('Could not save — is the server running?', false);
   } finally {
@@ -572,7 +596,11 @@ async function deletePoll(id) {
   if (!editingId && lib.activeId) loadPoll(lib.activeId);
 }
 
-$('#newPollBtn').addEventListener('click', clearEditor);
+$('#newPollBtn').addEventListener('click', () => {
+  clearEditor();
+  openEditor();
+});
+$('#editorBack').addEventListener('click', closeEditor);
 $('#saveActivateBtn').addEventListener('click', () => savePoll(true));
 makeSortable($('#pollList'), '.poll-item', saveLibraryOrder); // reorder the library
 $('#form').addEventListener('submit', (e) => {

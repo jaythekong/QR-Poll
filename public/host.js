@@ -11,9 +11,7 @@ const el = {
   statusText: document.getElementById('statusText'),
   qr: document.getElementById('qr'),
   url: document.getElementById('url'),
-  mainDonut: document.getElementById('mainDonut'),
-  mainTotal: document.getElementById('mainTotal'),
-  mainLegend: document.getElementById('mainLegend'),
+  mainChart: document.getElementById('mainChart'),
   resetBtn: document.getElementById('resetBtn'),
   closeBtn: document.getElementById('closeBtn'),
   startBtn: document.getElementById('startBtn'),
@@ -39,19 +37,38 @@ const el = {
 
 // No passcode — internal tool; the controls work for everyone.
 
-// Each question is a donut chart with a colour legend.
+// Each question renders as a donut or a bar chart (per-poll chartType), with a
+// shared colour palette.
 const FU_COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#22c55e', '#06b6d4', '#f43f5e', '#a3e635'];
 const color = (i) => FU_COLORS[i % FU_COLORS.length];
 
-const mainRefs = { ids: '', donut: el.mainDonut, total: el.mainTotal, legend: el.mainLegend, counts: [], pcts: [] };
-const followBlocks = []; // one donut chart per follow-up question
+const mainChart = { container: el.mainChart, key: '', els: null };
+const followBlocks = []; // one chart controller per follow-up question
 
-// Build/update one donut + legend. Rebuilds the legend only when options change.
-function renderDonut(refs, options, total) {
-  const ids = options.map((o) => o.id).join(',');
-  if (ids !== refs.ids) {
-    refs.ids = ids;
-    refs.legend.innerHTML = options
+// (Re)build a chart's DOM for the given type + options; store element refs.
+function buildChart(refs, options, type, hasHeading) {
+  const c = refs.container;
+  c.classList.toggle('bars-mode', type === 'bar');
+  const head = hasHeading ? '<h2 class="follow-h"></h2>' : '';
+  if (type === 'bar') {
+    const rows = options
+      .map(
+        (o, j) => `<div class="bar-row">
+          <span class="bar-label">${iconHtml(o.icon)}<span class="bl-text">${escapeHtml(o.label)}</span></span>
+          <span class="bar-track"><span class="bar-fill" style="background:${color(j)}"></span></span>
+          <span class="bar-meta"><b class="bar-count">0</b><span class="bar-pct">0%</span></span>
+        </div>`
+      )
+      .join('');
+    c.innerHTML = `${head}<div class="bars">${rows}</div>`;
+    refs.els = {
+      head: c.querySelector('.follow-h'),
+      fills: [...c.querySelectorAll('.bar-fill')],
+      counts: [...c.querySelectorAll('.bar-count')],
+      pcts: [...c.querySelectorAll('.bar-pct')]
+    };
+  } else {
+    const legend = options
       .map(
         (o, j) => `<li>
           <i style="background:${color(j)}"></i>
@@ -60,57 +77,64 @@ function renderDonut(refs, options, total) {
         </li>`
       )
       .join('');
-    refs.counts = [...refs.legend.querySelectorAll('.lg-count')];
-    refs.pcts = [...refs.legend.querySelectorAll('.lg-pct')];
-  }
-  options.forEach((o, j) => {
-    refs.counts[j].textContent = o.votes;
-    refs.pcts[j].textContent = o.percent + '%';
-  });
-  refs.total.textContent = total;
-
-  if (total > 0) {
-    let acc = 0;
-    const segs = options
-      .map((o, j) => {
-        const from = acc;
-        acc += (o.votes / total) * 100;
-        return `${color(j)} ${from}% ${acc}%`;
-      })
-      .join(', ');
-    refs.donut.style.background = `conic-gradient(${segs})`;
-  } else {
-    refs.donut.style.background = 'var(--panel-2)';
+    c.innerHTML = `${head}<div class="donut"><b class="donut-total">0</b></div><ul class="legend">${legend}</ul>`;
+    refs.els = {
+      head: c.querySelector('.follow-h'),
+      donut: c.querySelector('.donut'),
+      total: c.querySelector('.donut-total'),
+      counts: [...c.querySelectorAll('.lg-count')],
+      pcts: [...c.querySelectorAll('.lg-pct')]
+    };
   }
 }
 
-// One donut card per follow-up question, laid out side by side below the main.
-function renderFollowUps(fus) {
+// Draw/update a chart; rebuilds DOM only when the type or option set changes.
+function drawChart(refs, options, total, type, questionText) {
+  const key = type + '|' + options.map((o) => o.id).join(',');
+  if (refs.key !== key) {
+    refs.key = key;
+    buildChart(refs, options, type, questionText != null);
+  }
+  const e = refs.els;
+  if (e.head && questionText != null) e.head.textContent = questionText;
+  options.forEach((o, j) => {
+    e.counts[j].textContent = o.votes;
+    e.pcts[j].textContent = o.percent + '%';
+  });
+  if (type === 'bar') {
+    const max = Math.max(1, ...options.map((o) => o.votes));
+    options.forEach((o, j) => (e.fills[j].style.width = (o.votes / max) * 100 + '%'));
+  } else {
+    e.total.textContent = total;
+    if (total > 0) {
+      let acc = 0;
+      const segs = options
+        .map((o, j) => {
+          const from = acc;
+          acc += (o.votes / total) * 100;
+          return `${color(j)} ${from}% ${acc}%`;
+        })
+        .join(', ');
+      e.donut.style.background = `conic-gradient(${segs})`;
+    } else {
+      e.donut.style.background = 'var(--panel-2)';
+    }
+  }
+}
+
+// One chart card per follow-up question, laid out below the main.
+function renderFollowUps(fus, type) {
   if (followBlocks.length !== fus.length) {
     el.followBlocks.innerHTML = '';
     followBlocks.length = 0;
     for (let i = 0; i < fus.length; i++) {
       const div = document.createElement('div');
       div.className = 'followup chart';
-      div.innerHTML = `<h2 class="follow-h"></h2>
-        <div class="donut"><b class="donut-total">0</b></div>
-        <ul class="legend"></ul>`;
       el.followBlocks.appendChild(div);
-      followBlocks.push({
-        qEl: div.querySelector('.follow-h'),
-        ids: '',
-        donut: div.querySelector('.donut'),
-        total: div.querySelector('.donut-total'),
-        legend: div.querySelector('.legend'),
-        counts: [],
-        pcts: []
-      });
+      followBlocks.push({ container: div, key: '', els: null });
     }
   }
-  fus.forEach((fu, i) => {
-    followBlocks[i].qEl.textContent = fu.question;
-    renderDonut(followBlocks[i], fu.options, fu.total);
-  });
+  fus.forEach((fu, i) => drawChart(followBlocks[i], fu.options, fu.total, type, fu.question));
 }
 
 // This is the big screen, not a voter — announce so it isn't counted as watching.
@@ -133,11 +157,12 @@ function render(state) {
   el.question.textContent = state.question;
   el.total.textContent = state.total;
 
-  renderDonut(mainRefs, state.options, state.total);
+  const chartType = state.chartType === 'bar' ? 'bar' : 'donut';
+  drawChart(mainChart, state.options, state.total, chartType); // no heading (the <h1> is the question)
   const fus = state.followUps || [];
-  renderFollowUps(fus);
+  renderFollowUps(fus, chartType);
 
-  // Let CSS lay out however many follow-up donuts there are.
+  // Let CSS lay out however many follow-up charts there are.
   document.documentElement.style.setProperty('--fus-count', Math.max(1, fus.length));
 
   const phase = state.phase || (state.open ? 'open' : 'closed');

@@ -86,7 +86,7 @@ html, body {
 .stage-left {
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: clamp(10px, 2vh, 22px);
 }
 
@@ -153,6 +153,58 @@ html, body {
 .chart-main .lg-label .opt-ico { width: clamp(22px, 3.4vh, 40px); height: clamp(22px, 3.4vh, 40px); }
 .chart-main .lg-label .opt-ico.glyph { font-size: clamp(18px, 3vh, 34px); }
 .chart-main .lg-pct { font-size: 0.72em; }
+
+/* --- Bar charts (alternative to the donut, per-poll chartType) --- */
+.chart.bars-mode { display: block; }
+.followup.bars-mode { display: block; }
+.followup.bars-mode .follow-h { margin-bottom: clamp(6px, 1.2vh, 12px); }
+
+.bars { display: grid; gap: clamp(6px, 1.3vh, 14px); }
+.bar-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 30%) 1fr auto;
+  align-items: center;
+  gap: clamp(8px, 1.2vw, 18px);
+}
+.bar-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-weight: 650;
+}
+.bar-label .bl-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track {
+  position: relative;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0%;
+  border-radius: 10px;
+  transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.bar-meta { font-variant-numeric: tabular-nums; font-weight: 750; white-space: nowrap; }
+.bar-meta .bar-pct { color: var(--muted); font-size: 0.72em; margin-left: 5px; }
+
+/* Main-question bars (large) */
+.chart-main.bars-mode .bars { gap: clamp(8px, 1.7vh, 18px); }
+.chart-main .bar-label { font-size: clamp(14px, 2.8vh, 30px); }
+.chart-main .bar-label .opt-ico { width: clamp(22px, 3.4vh, 40px); height: clamp(22px, 3.4vh, 40px); }
+.chart-main .bar-label .opt-ico.glyph { font-size: clamp(18px, 3vh, 34px); }
+.chart-main .bar-track { height: clamp(22px, 4.5vh, 56px); }
+.chart-main .bar-meta { font-size: clamp(16px, 3vh, 30px); }
+
+/* Follow-up bars (compact, inside the cards) */
+.followup .bar-label { font-size: clamp(11px, 1.9vh, 17px); gap: 6px; }
+.followup .bar-label .opt-ico { width: clamp(14px, 2.2vh, 22px); height: clamp(14px, 2.2vh, 22px); }
+.followup .bar-track { height: clamp(12px, 2.4vh, 22px); }
+.followup .bar-meta { font-size: clamp(11px, 2vh, 16px); }
+.followup .bar-row { grid-template-columns: minmax(64px, 34%) 1fr auto; gap: clamp(6px, 1vw, 12px); }
 
 .qr-card {
   background: var(--panel);
@@ -514,13 +566,15 @@ html, body {
 }
 .follow-skip { margin-top: 18px; }
 
-/* Follow-up donuts: side-by-side cards under the main chart */
+/* Follow-up donuts: cards that wrap into a grid so any number stays readable
+   (2 sit side by side; more wrap into rows). Scrolls only if they overflow. */
 #followBlocks {
   display: grid;
-  grid-template-columns: repeat(var(--fus-count, 1), minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
   gap: clamp(10px, 1.6vw, 22px);
   align-content: center;
   min-height: 0;
+  overflow-y: auto;
 }
 .followup {
   background: var(--panel);

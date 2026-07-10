@@ -271,6 +271,16 @@ input[type="text"]::placeholder { color: #6b7494; }
 .editor-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
 .editor-head h2 { margin: 0; font-size: 22px; }
 .editing-active { color: var(--good); font-weight: 700; font-size: 13px; }
+.editor-back { align-self: start; margin-bottom: 6px; padding: 8px 14px; font-size: 14px; }
+
+/* Edit poll opens its own focused screen: hide the list, show only the editor. */
+.admin:not(.editing) #form { display: none; }
+.admin.editing .admin-title,
+.admin.editing .admin-sub,
+.admin.editing .ctrl-card,
+.admin.editing .screen-card,
+.admin.editing .lib-card,
+.admin.editing .log-card { display: none; }
 
 @media (max-width: 560px) {
   .poll-item { flex-direction: column; align-items: stretch; }

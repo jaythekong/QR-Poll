@@ -35,13 +35,14 @@ function normalizeOptions(list) {
 }
 
 // Up to 2 follow-up questions after the main one (3 questions total).
-const MAX_FOLLOWUPS = 2;
+const MAX_FOLLOWUPS = 20; // effectively no limit (a guard against runaway input)
 
 function loadConfig() {
   const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
   const cfg = {
     logo: raw.logo || '/logo.svg',
     question: raw.question || 'Cast your vote',
+    chartType: raw.chartType === 'bar' ? 'bar' : 'donut',
     options: normalizeOptions(raw.options),
     followUps: []
   };
@@ -206,6 +207,7 @@ function cleanDef(src) {
   return {
     logo: src.logo || '/logo.svg',
     question: String(src.question || ''),
+    chartType: src.chartType === 'bar' ? 'bar' : 'donut',
     options: (src.options || []).map(opt),
     followUps: (src.followUps || []).map((fu) => ({
       question: String(fu.question || ''),
@@ -222,6 +224,7 @@ function applyDef(def) {
   poll = {
     logo: def.logo || '/logo.svg',
     question: def.question || 'Cast your vote',
+    chartType: def.chartType === 'bar' ? 'bar' : 'donut',
     options: normalizeOptions(def.options),
     followUps: (def.followUps || [])
       .slice(0, MAX_FOLLOWUPS)
@@ -377,6 +380,7 @@ function publicState() {
     total: main.total,
     options: main.options,
     followUps: poll.followUps.map((fu) => tallyBlock(fu.question, fu.options)),
+    chartType: poll.chartType === 'bar' ? 'bar' : 'donut',
     screen,
     countdown: {
       backdrop: cd.backdrop,
@@ -474,7 +478,8 @@ function validateDef(body) {
     if (!q || opts.length < 2) return { error: 'followup_needs_question_and_two_options' };
     followUps.push({ question: q, options: opts });
   }
-  return { def: { logo, question, options, followUps } };
+  const chartType = (body && body.chartType) === 'bar' ? 'bar' : 'donut';
+  return { def: { logo, question, chartType, options, followUps } };
 }
 
 function pollName(body, def) {
@@ -725,6 +730,7 @@ function currentConfig() {
   return {
     logo: poll.logo,
     question: poll.question,
+    chartType: poll.chartType === 'bar' ? 'bar' : 'donut',
     options: poll.options.map(strip),
     followUps: poll.followUps.map((fu) => ({ question: fu.question, options: fu.options.map(strip) }))
   };
