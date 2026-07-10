@@ -79,6 +79,41 @@ function clearCloseTimer() {
     closeTimer = null;
   }
 }
+
+// Big-screen mode + countdown timer. The admin can switch the big screen to a
+// full-screen countdown (e.g. a break timer) over a backdrop photo.
+let screen = 'poll'; // 'poll' | 'countdown'
+const cd = {
+  durationSec: 300, // the set length
+  endsAt: null, // ms deadline while running
+  remainingMs: 300000, // remaining while idle/paused
+  running: false,
+  backdrop: '', // image path, or '' for a plain background
+  showLogo: true // show the logo on the countdown screen
+};
+function cdSetDuration(sec) {
+  cd.durationSec = Math.min(24 * 3600, Math.max(0, Math.round(Number(sec) || 0)));
+  if (!cd.running) {
+    cd.remainingMs = cd.durationSec * 1000;
+    cd.endsAt = null;
+  }
+}
+function cdStart() {
+  if (cd.running || cd.remainingMs <= 0) return;
+  cd.endsAt = Date.now() + cd.remainingMs;
+  cd.running = true;
+}
+function cdPause() {
+  if (!cd.running) return;
+  cd.remainingMs = Math.max(0, cd.endsAt - Date.now());
+  cd.endsAt = null;
+  cd.running = false;
+}
+function cdReset() {
+  cd.running = false;
+  cd.endsAt = null;
+  cd.remainingMs = cd.durationSec * 1000;
+}
 // deviceId -> optionId it voted for (one vote per device, F6). Tracking the
 // chosen option lets a voter cancel and re-vote.
 const deviceVotes = new Map();
@@ -242,6 +277,8 @@ function serializeState() {
     phase,
     startedAt,
     endsAt,
+    screen,
+    cd: { durationSec: cd.durationSec, endsAt: cd.endsAt, remainingMs: cd.remainingMs, running: cd.running, backdrop: cd.backdrop, showLogo: cd.showLogo },
     deviceVotes: [...deviceVotes],
     followVotes: [...followVotes],
     sessions
@@ -262,6 +299,15 @@ function hydrateState(s) {
   phase = s.phase || 'standby';
   startedAt = s.startedAt || null;
   endsAt = s.endsAt || null;
+  screen = s.screen === 'countdown' ? 'countdown' : 'poll';
+  if (s.cd) {
+    cd.durationSec = Number(s.cd.durationSec) || 300;
+    cd.endsAt = s.cd.endsAt || null;
+    cd.remainingMs = Number(s.cd.remainingMs) || cd.durationSec * 1000;
+    cd.running = !!s.cd.running;
+    cd.backdrop = typeof s.cd.backdrop === 'string' ? s.cd.backdrop : '';
+    cd.showLogo = s.cd.showLogo !== false;
+  }
   deviceVotes.clear();
   (s.deviceVotes || []).forEach(([k, v]) => deviceVotes.set(k, v));
   followVotes.clear();
@@ -326,7 +372,16 @@ function publicState() {
     now: Date.now(), // lets clients sync their ticking clock to server time
     total: main.total,
     options: main.options,
-    followUps: poll.followUps.map((fu) => tallyBlock(fu.question, fu.options))
+    followUps: poll.followUps.map((fu) => tallyBlock(fu.question, fu.options)),
+    screen,
+    countdown: {
+      backdrop: cd.backdrop,
+      durationSec: cd.durationSec,
+      running: cd.running,
+      endsAt: cd.endsAt,
+      remainingMs: cd.remainingMs,
+      showLogo: cd.showLogo
+    }
   };
 }
 
@@ -798,6 +853,43 @@ io.on('connection', (socket) => {
     phase = 'standby'; // back to "press Start" — QR hidden until then
     startedAt = null;
     endsAt = null;
+    broadcast();
+    persist();
+  });
+
+  // Big-screen mode + countdown controls (admin-driven).
+  socket.on('screen:set', ({ mode } = {}) => {
+    screen = mode === 'countdown' ? 'countdown' : 'poll';
+    broadcast();
+    persist();
+  });
+  socket.on('cd:set', ({ durationSec } = {}) => {
+    cdSetDuration(durationSec);
+    broadcast();
+    persist();
+  });
+  socket.on('cd:start', () => {
+    cdStart();
+    broadcast();
+    persist();
+  });
+  socket.on('cd:pause', () => {
+    cdPause();
+    broadcast();
+    persist();
+  });
+  socket.on('cd:reset', () => {
+    cdReset();
+    broadcast();
+    persist();
+  });
+  socket.on('cd:backdrop', ({ path } = {}) => {
+    cd.backdrop = typeof path === 'string' ? path : '';
+    broadcast();
+    persist();
+  });
+  socket.on('cd:logo', ({ show } = {}) => {
+    cd.showLogo = !!show;
     broadcast();
     persist();
   });

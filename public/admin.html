@@ -43,6 +43,57 @@
       <p class="hint">The big screen (<a href="/" target="_blank">/</a>) only displays — start, close, and reset the poll from here.</p>
     </section>
 
+    <!-- Big screen mode + countdown -->
+    <section class="card screen-card">
+      <div class="ctrl-head">
+        <h2>Big screen</h2>
+        <span class="pill" id="screenPill"><span id="screenText">Poll</span></span>
+      </div>
+      <div class="seg" role="tablist">
+        <button type="button" class="seg-btn active" id="showPollBtn">📊 Poll</button>
+        <button type="button" class="seg-btn" id="showCountdownBtn">⏱ Countdown</button>
+      </div>
+
+      <div id="cdPanel" class="cd-panel">
+        <div class="field">
+          <label>Countdown length</label>
+          <div class="cd-len-row">
+            <input type="number" id="cdMin" min="0" max="1440" value="5" /> <span class="muted">min</span>
+            <input type="number" id="cdSec" min="0" max="59" value="0" /> <span class="muted">sec</span>
+            <button type="button" class="btn ghost" id="cdSetBtn">Set</button>
+            <span class="cd-presets">
+              <button type="button" class="btn ghost cd-preset" data-sec="60">1m</button>
+              <button type="button" class="btn ghost cd-preset" data-sec="300">5m</button>
+              <button type="button" class="btn ghost cd-preset" data-sec="600">10m</button>
+              <button type="button" class="btn ghost cd-preset" data-sec="900">15m</button>
+            </span>
+          </div>
+        </div>
+        <div class="cd-ctrl-row">
+          <button type="button" class="btn primary" id="cdStartBtn">Start</button>
+          <button type="button" class="btn hidden" id="cdPauseBtn">Pause</button>
+          <button type="button" class="btn ghost" id="cdResetBtn">Reset</button>
+          <span class="ctrl-clock" id="cdRemain">⏱ <b>5:00</b></span>
+        </div>
+        <label class="cd-toggle">
+          <input type="checkbox" id="cdShowLogo" checked />
+          <span>Show logo on countdown screen</span>
+        </label>
+        <div class="field">
+          <label>Backdrop photo <span class="muted">— shown behind the countdown</span></label>
+          <div class="backdrop-row">
+            <div class="backdrop-preview" id="cdBackdropPreview"></div>
+            <div class="backdrop-actions">
+              <input type="file" id="cdBackdropFile" accept="image/*" hidden />
+              <button type="button" class="btn" id="cdBackdropUploadBtn">Upload backdrop</button>
+              <button type="button" class="btn ghost" id="cdBackdropRemoveBtn">Remove</button>
+              <p class="hint">Landscape photo looks best. PNG, JPG, WEBP.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- Poll library -->
     <section class="card lib-card">
       <div class="lib-head">

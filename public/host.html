@@ -62,6 +62,21 @@
     </footer>
   </main>
 
+  <!-- Full-screen countdown mode (shown when the admin switches to it) -->
+  <div id="countdownScreen" class="cd-screen hidden">
+    <div class="cd-backdrop no-image" id="cdBackdrop"></div>
+    <div class="cd-inner">
+      <img class="cd-logo" id="cdLogo" src="/logo.svg" alt="" />
+      <div class="cd-time" id="cdTime">5:00</div>
+      <div class="cd-done hidden" id="cdDone">Time's up!</div>
+    </div>
+    <div class="cd-controls">
+      <button type="button" class="btn primary" id="cdScreenStart">▶ Start</button>
+      <button type="button" class="btn hidden" id="cdScreenPause">⏸ Pause</button>
+      <button type="button" class="btn ghost" id="cdScreenReset">↺ Reset</button>
+    </div>
+  </div>
+
   <script src="/socket.io/socket.io.js"></script>
   <script src="/host.js"></script>
 </body>

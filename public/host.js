@@ -24,7 +24,15 @@ const el = {
   qrLive: document.getElementById('qrLive'),
   viewers: document.getElementById('viewers'),
   viewerCount: document.getElementById('viewerCount'),
-  followBlocks: document.getElementById('followBlocks')
+  followBlocks: document.getElementById('followBlocks'),
+  countdownScreen: document.getElementById('countdownScreen'),
+  cdBackdrop: document.getElementById('cdBackdrop'),
+  cdLogo: document.getElementById('cdLogo'),
+  cdTime: document.getElementById('cdTime'),
+  cdDone: document.getElementById('cdDone'),
+  cdScreenStart: document.getElementById('cdScreenStart'),
+  cdScreenPause: document.getElementById('cdScreenPause'),
+  cdScreenReset: document.getElementById('cdScreenReset')
 };
 
 // No passcode — internal tool; the controls work for everyone.
@@ -159,6 +167,22 @@ function render(state) {
   serverOffset = (state.now || Date.now()) - Date.now();
   tickClock();
 
+  // Countdown mode (full-screen), switched from admin.
+  const scr = state.screen || 'poll';
+  el.countdownScreen.classList.toggle('hidden', scr !== 'countdown');
+  const c = state.countdown || {};
+  cdRef = { running: !!c.running, endsAt: c.endsAt, remainingMs: c.remainingMs, durationSec: c.durationSec };
+  if (el.cdLogo.getAttribute('src') !== state.logo) el.cdLogo.src = state.logo;
+  el.cdLogo.classList.toggle('hidden', c.showLogo === false); // admin show/hide
+  const bd = c.backdrop || '';
+  const bdUrl = bd ? `url("${bd.replace(/"/g, '%22')}")` : '';
+  if (el.cdBackdrop.style.backgroundImage !== bdUrl) el.cdBackdrop.style.backgroundImage = bdUrl;
+  el.cdBackdrop.classList.toggle('no-image', !bd);
+  // Big-screen controls reflect running state.
+  el.cdScreenStart.classList.toggle('hidden', !!c.running);
+  el.cdScreenPause.classList.toggle('hidden', !c.running);
+  tickCd();
+
   // Start/Close controls per phase.
   el.closeBtn.classList.toggle('hidden', phase !== 'open');
   el.startBtn.classList.toggle('hidden', phase === 'open');
@@ -188,6 +212,28 @@ function tickClock() {
 }
 setInterval(tickClock, 500);
 
+// --- countdown timer ---------------------------------------------------------
+let cdRef = { running: false, endsAt: null, remainingMs: 0, durationSec: 0 };
+
+function fmtCountdown(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+}
+
+function tickCd() {
+  const { running, endsAt, remainingMs } = cdRef;
+  const ms = running && endsAt ? endsAt - (Date.now() + serverOffset) : remainingMs || 0;
+  el.cdTime.textContent = fmtCountdown(ms);
+  const done = ms <= 0;
+  el.cdTime.classList.toggle('at-zero', done);
+  el.cdDone.classList.toggle('hidden', !(done && running));
+}
+setInterval(tickCd, 200);
+
 let lastState = null;
 socket.on('state', (state) => {
   lastState = state;
@@ -203,6 +249,11 @@ el.resetBtn.addEventListener('click', () => {
     socket.emit('host:reset');
   }
 });
+
+// Countdown controls on the big screen.
+el.cdScreenStart.addEventListener('click', () => socket.emit('cd:start'));
+el.cdScreenPause.addEventListener('click', () => socket.emit('cd:pause'));
+el.cdScreenReset.addEventListener('click', () => socket.emit('cd:reset'));
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({

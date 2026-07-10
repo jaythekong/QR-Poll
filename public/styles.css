@@ -409,6 +409,75 @@ html, body {
 
 .hidden { display: none !important; }
 
+/* ---------------------------- Countdown (big screen) ---------------------------- */
+
+.cd-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--bg);
+}
+.cd-backdrop {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+}
+.cd-backdrop.no-image {
+  background: radial-gradient(1000px 700px at 50% 0%, #1c2547 0%, var(--bg) 60%);
+}
+/* Dim the photo so the timer stays readable */
+.cd-backdrop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 7, 18, 0.5);
+}
+.cd-inner {
+  position: relative;
+  text-align: center;
+  display: grid;
+  justify-items: center;
+  gap: clamp(10px, 3vh, 34px);
+  padding: 24px;
+}
+.cd-logo { height: clamp(40px, 7vh, 90px); width: auto; opacity: 0.95; }
+.cd-time {
+  font-size: clamp(90px, 26vw, 380px);
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  text-shadow: 0 6px 40px rgba(0, 0, 0, 0.55);
+}
+.cd-time.at-zero { color: #ff6b81; }
+.cd-done {
+  font-size: clamp(26px, 5vw, 70px);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #ffd7dd;
+}
+.cd-controls {
+  position: absolute;
+  bottom: clamp(20px, 4vh, 48px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 12px;
+  z-index: 2;
+  opacity: 0.5;
+  transition: opacity 0.2s ease;
+}
+.cd-controls:hover { opacity: 1; }
+.cd-controls .btn { font-size: clamp(15px, 1.8vh, 20px); padding: 12px 22px; backdrop-filter: blur(6px); }
+/* Solid Start button (not the gradient) */
+.cd-controls .btn.primary { background: #6d5efc; border-color: transparent; color: #fff; }
+.cd-controls .btn.primary:hover { background: #7d70ff; }
+
 
 /* ------------------------------ Follow-up ------------------------------ */
 

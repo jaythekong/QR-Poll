@@ -109,6 +109,7 @@ function renderControls(s) {
 socket.on('state', (s) => {
   pollState = s;
   renderControls(s);
+  renderScreen(s);
 });
 
 function hostEmit(event, extra) {
@@ -124,6 +125,92 @@ $('#resetBtn').addEventListener('click', () => {
     hostEmit('host:reset');
   }
 });
+
+// --- big screen mode + countdown -------------------------------------------
+
+let cdRef = { running: false, endsAt: null, remainingMs: 0 };
+
+function fmtCd(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+}
+function tickCdRemain() {
+  const { running, endsAt, remainingMs } = cdRef;
+  const ms = running && endsAt ? endsAt - (Date.now() + serverOffset) : remainingMs || 0;
+  $('#cdRemain').innerHTML = '⏱ <b>' + fmtCd(ms) + '</b>';
+}
+setInterval(tickCdRemain, 250);
+
+let backdropSet = false;
+
+function renderScreen(s) {
+  const mode = s.screen || 'poll';
+  $('#screenText').textContent = mode === 'countdown' ? 'Countdown' : 'Poll';
+  $('#screenPill').className = 'pill' + (mode === 'countdown' ? ' live' : '');
+  $('#showPollBtn').classList.toggle('active', mode === 'poll');
+  $('#showCountdownBtn').classList.toggle('active', mode === 'countdown');
+  $('#cdPanel').classList.toggle('dim', mode !== 'countdown');
+
+  const c = s.countdown || {};
+  cdRef = { running: !!c.running, endsAt: c.endsAt, remainingMs: c.remainingMs };
+  $('#cdStartBtn').classList.toggle('hidden', c.running);
+  $('#cdPauseBtn').classList.toggle('hidden', !c.running);
+  if (document.activeElement !== $('#cdShowLogo')) $('#cdShowLogo').checked = c.showLogo !== false;
+  tickCdRemain();
+
+  // Backdrop preview (only overwrite when it changes, so we don't fight typing).
+  const bd = c.backdrop || '';
+  const url = bd ? `url("${bd}")` : '';
+  if ($('#cdBackdropPreview').dataset.bd !== bd) {
+    $('#cdBackdropPreview').dataset.bd = bd;
+    $('#cdBackdropPreview').style.backgroundImage = url;
+    $('#cdBackdropPreview').classList.toggle('empty', !bd);
+  }
+  backdropSet = !!bd;
+}
+
+$('#showPollBtn').addEventListener('click', () => socket.emit('screen:set', { mode: 'poll' }));
+$('#showCountdownBtn').addEventListener('click', () => socket.emit('screen:set', { mode: 'countdown' }));
+
+function applyDuration() {
+  const min = Math.max(0, Number($('#cdMin').value) || 0);
+  const sec = Math.min(59, Math.max(0, Number($('#cdSec').value) || 0));
+  socket.emit('cd:set', { durationSec: min * 60 + sec });
+}
+$('#cdSetBtn').addEventListener('click', applyDuration);
+$('#cdMin').addEventListener('change', applyDuration);
+$('#cdSec').addEventListener('change', applyDuration);
+document.querySelectorAll('.cd-preset').forEach((b) =>
+  b.addEventListener('click', () => {
+    const sec = Number(b.dataset.sec);
+    $('#cdMin').value = Math.floor(sec / 60);
+    $('#cdSec').value = sec % 60;
+    socket.emit('cd:set', { durationSec: sec });
+  })
+);
+$('#cdStartBtn').addEventListener('click', () => socket.emit('cd:start'));
+$('#cdPauseBtn').addEventListener('click', () => socket.emit('cd:pause'));
+$('#cdResetBtn').addEventListener('click', () => socket.emit('cd:reset'));
+
+// Backdrop upload / remove (reuses the image upload endpoint).
+$('#cdBackdropUploadBtn').addEventListener('click', () => $('#cdBackdropFile').click());
+$('#cdBackdropFile').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const path = await uploadImage(file);
+    socket.emit('cd:backdrop', { path });
+  } catch {
+    flash('Backdrop upload failed', false);
+  }
+  e.target.value = '';
+});
+$('#cdBackdropRemoveBtn').addEventListener('click', () => socket.emit('cd:backdrop', { path: '' }));
+$('#cdShowLogo').addEventListener('change', (e) => socket.emit('cd:logo', { show: e.target.checked }));
 
 // --- helpers ---------------------------------------------------------------
 
