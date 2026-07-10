@@ -188,9 +188,8 @@ function render(state) {
   // Pixel character (animated on the countdown screen).
   const wantBuddy = scr === 'countdown' && c.buddy && c.buddySprite;
   setBuddySprite(c.buddySprite || '');
-  el.cdBuddy.classList.toggle('hidden', !wantBuddy);
   el.cdConfetti.classList.toggle('hidden', scr !== 'countdown');
-  buddyEnabled = !!wantBuddy;
+  buddyEnabled = !!wantBuddy; // the loop decides visibility (delayed 20s in)
 
   // Start/Close controls per phase.
   el.closeBtn.classList.toggle('hidden', phase !== 'open');
@@ -236,10 +235,10 @@ function fmtCountdown(ms) {
 function tickCd() {
   const { running, endsAt, remainingMs } = cdRef;
   const ms = running && endsAt ? endsAt - (Date.now() + serverOffset) : remainingMs || 0;
-  el.cdTime.textContent = fmtCountdown(ms);
-  const done = ms <= 0;
-  el.cdTime.classList.toggle('at-zero', done);
-  el.cdDone.classList.toggle('hidden', !(done && running));
+  const showDone = ms <= 0 && running;
+  el.cdTime.classList.toggle('hidden', showDone); // hide the 0:00 at the end
+  el.cdDone.classList.toggle('hidden', !showDone); // show the big "Time's up!"
+  if (!showDone) el.cdTime.textContent = fmtCountdown(ms);
 }
 setInterval(tickCd, 200);
 
@@ -357,7 +356,7 @@ function animateBuddy(nowT) {
   const dt = Math.min(0.05, (nowT - buddyLast) / 1000);
   buddyLast = nowT;
   const screenEl = el.countdownScreen;
-  const shown = buddyEnabled && !screenEl.classList.contains('hidden');
+  const cdVisible = !screenEl.classList.contains('hidden');
 
   // Confetti canvas
   const cv = el.cdConfetti;
@@ -366,11 +365,15 @@ function animateBuddy(nowT) {
   if (cv.width !== W) cv.width = W;
   if (cv.height !== H) cv.height = H;
 
+  // The buddy only appears once the countdown has been running for 20s.
+  const remaining = cdRef.running && cdRef.endsAt
+    ? cdRef.endsAt - (Date.now() + serverOffset)
+    : cdRef.remainingMs || 0;
+  const elapsed = (cdRef.durationSec || 0) * 1000 - remaining;
+  const shown = buddyEnabled && cdVisible && elapsed >= 20000;
+  el.cdBuddy.classList.toggle('hidden', !shown);
+
   if (shown) {
-    // Situation from the timer.
-    const remaining = cdRef.running && cdRef.endsAt
-      ? cdRef.endsAt - (Date.now() + serverOffset)
-      : cdRef.remainingMs || 0;
     const done = remaining <= 0 && (cdRef.running || cdRef.durationSec > 0);
     const excited = cdRef.running && remaining > 0 && remaining <= 10000;
 

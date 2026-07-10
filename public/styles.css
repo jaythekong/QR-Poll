@@ -456,10 +456,11 @@ html, body {
 }
 .cd-time.at-zero { color: #ff6b81; }
 .cd-done {
-  font-size: clamp(26px, 5vw, 70px);
+  font-size: clamp(52px, 11vw, 170px);
   font-weight: 800;
-  letter-spacing: -0.01em;
-  color: #ffd7dd;
+  letter-spacing: -0.02em;
+  color: #5aa9ff;
+  text-shadow: 0 6px 44px rgba(0, 0, 0, 0.55);
 }
 .cd-buddy {
   position: absolute;
