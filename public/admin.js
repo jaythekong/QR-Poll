@@ -4,6 +4,54 @@ const $ = (sel) => document.querySelector(sel);
 const optionList = $('#optionList');
 const optionTpl = $('#optionTpl');
 
+// --- drag-to-reorder --------------------------------------------------------
+// Rows are draggable only while a .drag-handle is held (so inputs stay usable).
+function afterElement(container, itemSel, y) {
+  const els = [...container.querySelectorAll(itemSel + ':not(.dragging)')];
+  let best = null;
+  let bestOffset = -Infinity;
+  for (const c of els) {
+    const box = c.getBoundingClientRect();
+    const offset = y - box.top - box.height / 2;
+    if (offset < 0 && offset > bestOffset) {
+      bestOffset = offset;
+      best = c;
+    }
+  }
+  return best;
+}
+
+function makeSortable(container, itemSel, onDrop) {
+  let dragEl = null;
+  container.addEventListener('pointerdown', (e) => {
+    const handle = e.target.closest('.drag-handle');
+    if (!handle) return;
+    const it = handle.closest(itemSel);
+    if (it && container.contains(it)) it.setAttribute('draggable', 'true');
+  });
+  container.addEventListener('dragstart', (e) => {
+    const it = e.target.closest(itemSel);
+    if (!it) return;
+    dragEl = it;
+    it.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  container.addEventListener('dragover', (e) => {
+    if (!dragEl) return;
+    e.preventDefault();
+    const after = afterElement(container, itemSel, e.clientY);
+    if (after == null) container.appendChild(dragEl);
+    else container.insertBefore(dragEl, after);
+  });
+  container.addEventListener('dragend', () => {
+    if (!dragEl) return;
+    dragEl.classList.remove('dragging');
+    dragEl.removeAttribute('draggable');
+    dragEl = null;
+    if (onDrop) onDrop();
+  });
+}
+
 let logoValue = '/logo.svg';
 
 // No passcode — internal tool; the admin page and controls are open.
@@ -181,6 +229,7 @@ function addOptionRow(opt = {}, list = optionList, minKeep = 2) {
 }
 
 $('#addOption').addEventListener('click', () => addOptionRow());
+makeSortable(optionList, '.option-row'); // reorder the main question's options
 
 // --- follow-up question blocks (max 2 → 3 questions total) -------------------
 
@@ -207,6 +256,7 @@ function addFollowBlock(fu = {}) {
   const opts = (fu.options || []).map((o) => (typeof o === 'string' ? { label: o } : o));
   (opts.length ? opts : [{}, {}]).forEach((o) => addOptionRow(o, list, 0));
   block.querySelector('.fu-add-opt').addEventListener('click', () => addOptionRow({}, list, 0));
+  makeSortable(list, '.option-row'); // reorder this follow-up's options
   block.querySelector('.fu-remove').addEventListener('click', () => {
     block.remove();
     updateFollowAddBtn();
@@ -245,59 +295,181 @@ function flash(text, ok) {
   if (ok) setTimeout(() => (el.textContent = ''), 3000);
 }
 
-async function load() {
-  const cfg = await (await fetch('/api/config')).json();
-  setLogo(cfg.logo);
-  $('#brandLogo').src = cfg.logo || '/logo.svg';
-  $('#question').value = cfg.question || '';
-  optionList.innerHTML = '';
-  const opts = (cfg.options || []).map((o) => (typeof o === 'string' ? { label: o } : o));
-  (opts.length ? opts : [{}, {}]).forEach((o) => addOptionRow(o));
+// --- poll library ----------------------------------------------------------
 
-  // Follow-up questions (optional; accepts legacy single `followUp` too)
+let editingId = null; // library poll currently in the editor (null = new/unsaved)
+let activeLiveId = null; // library poll currently on screen
+
+// Fill the editor form from a poll definition.
+function fillEditor(def) {
+  $('#pollNameInput').value = def.name || '';
+  setLogo(def.logo);
+  $('#brandLogo').src = def.logo || '/logo.svg';
+  $('#question').value = def.question || '';
+  optionList.innerHTML = '';
+  const opts = (def.options || []).map((o) => (typeof o === 'string' ? { label: o } : o));
+  (opts.length ? opts : [{}, {}]).forEach((o) => addOptionRow(o));
   followList.innerHTML = '';
-  const fus = Array.isArray(cfg.followUps) ? cfg.followUps : cfg.followUp ? [cfg.followUp] : [];
+  const fus = Array.isArray(def.followUps) ? def.followUps : def.followUp ? [def.followUp] : [];
   fus.slice(0, MAX_FOLLOWUPS).forEach(addFollowBlock);
   updateFollowAddBtn();
 }
 
-$('#form').addEventListener('submit', async (e) => {
-  e.preventDefault();
+function clearEditor() {
+  editingId = null;
+  fillEditor({ name: '', logo: '/logo.svg', question: '', options: [{}, {}], followUps: [] });
+  $('#editorTitle').textContent = 'New poll';
+  $('#editingActive').classList.add('hidden');
+  renderPollList(lastLibrary);
+  $('#question').focus();
+}
+
+// Validate the form and build the payload, or flash an error and return null.
+function buildPayload() {
   const question = $('#question').value.trim();
   const options = collectOptions().filter((o) => o.label);
-
-  if (!question) return flash('Add a poll name / question', false);
-  if (options.length < 2) return flash('Add at least 2 named options', false);
-
-  // Follow-ups: empty blocks are dropped; a half-filled one is an error.
+  if (!question) return flash('Add a question', false), null;
+  if (options.length < 2) return flash('Add at least 2 named options', false), null;
   const followUps = collectFollowUps().filter((fu) => fu.question || fu.options.length);
   for (const fu of followUps) {
     if (!fu.question || fu.options.length < 2) {
-      return flash('Each follow-up needs a question and at least 2 options', false);
+      return flash('Each follow-up needs a question and at least 2 options', false), null;
     }
   }
-  const payload = { logo: logoValue, question, options };
+  const payload = { name: $('#pollNameInput').value.trim() || question, logo: logoValue, question, options };
   if (followUps.length) payload.followUps = followUps;
+  return payload;
+}
 
-  $('#saveBtn').disabled = true;
+let lastLibrary = { activeId: null, polls: [] };
+
+function renderPollList(data) {
+  lastLibrary = data;
+  activeLiveId = data.activeId;
+  $('#pollList').innerHTML = data.polls
+    .map((p) => {
+      const sub =
+        `${escapeText(p.question)} · ${p.options} option${p.options === 1 ? '' : 's'}` +
+        (p.followUps ? ` · ${p.followUps} follow-up${p.followUps === 1 ? '' : 's'}` : '');
+      return `<div class="poll-item${p.active ? ' active' : ''}${p.id === editingId ? ' editing' : ''}" data-id="${p.id}">
+        <span class="drag-handle" title="Drag to reorder">⠿</span>
+        <div class="pi-main">
+          <div class="pi-name">${escapeText(p.name)}${p.active ? ' <span class="pi-badge">on screen</span>' : ''}</div>
+          <div class="pi-sub">${sub}</div>
+        </div>
+        <div class="pi-actions">
+          <button type="button" class="btn ghost pi-edit" data-id="${p.id}">Edit</button>
+          <button type="button" class="btn ghost pi-dup" data-id="${p.id}" title="Duplicate poll">⧉</button>
+          <button type="button" class="btn ${p.active ? 'ghost' : 'primary'} pi-activate" data-id="${p.id}"${p.active ? ' disabled' : ''}>${p.active ? 'On screen' : 'Put on screen'}</button>
+          <button type="button" class="btn ghost pi-del" data-id="${p.id}" title="Delete poll">🗑</button>
+        </div>
+      </div>`;
+    })
+    .join('');
+  $('#pollList').querySelectorAll('.pi-edit').forEach((b) => b.addEventListener('click', () => loadPoll(b.dataset.id)));
+  $('#pollList').querySelectorAll('.pi-activate').forEach((b) => b.addEventListener('click', () => activatePoll(b.dataset.id)));
+  $('#pollList').querySelectorAll('.pi-dup').forEach((b) => b.addEventListener('click', () => duplicatePoll(b.dataset.id)));
+  $('#pollList').querySelectorAll('.pi-del').forEach((b) => b.addEventListener('click', () => deletePoll(b.dataset.id)));
+}
+
+async function duplicatePoll(id) {
+  const res = await fetch('/api/polls/' + id + '/duplicate', { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return flash('Could not duplicate', false);
+  await refreshList();
+  flash('Duplicated.', true);
+  loadPoll(data.id); // open the copy for editing
+}
+
+// Persist the library order after a drag-and-drop reorder of the list.
+async function saveLibraryOrder() {
+  const order = [...document.querySelectorAll('#pollList .poll-item')].map((el) => el.dataset.id);
   try {
-    const res = await fetch('/api/config', {
+    await fetch('/api/polls/reorder', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order })
+    });
+  } catch {
+    /* order will resync on next refresh */
+  }
+}
+
+async function refreshList() {
+  const data = await (await fetch('/api/polls')).json();
+  renderPollList(data);
+  return data;
+}
+
+async function loadPoll(id) {
+  const res = await fetch('/api/polls/' + id);
+  if (!res.ok) return flash('Could not load poll', false);
+  const def = await res.json();
+  editingId = id;
+  fillEditor(def);
+  $('#editorTitle').textContent = 'Edit poll';
+  $('#editingActive').classList.toggle('hidden', id !== activeLiveId);
+  renderPollList(lastLibrary);
+  $('#form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function savePoll(activate) {
+  const payload = buildPayload();
+  if (!payload) return;
+  $('#saveBtn').disabled = true;
+  $('#saveActivateBtn').disabled = true;
+  try {
+    const res = await fetch(editingId ? '/api/polls/' + editingId : '/api/polls', {
+      method: editingId ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
     const data = await res.json();
-    if (res.ok) {
-      $('#brandLogo').src = logoValue;
-      flash('Saved. Votes reset — press Start poll on the big screen when ready.', true);
+    if (!res.ok) return flash('Could not save (' + (data.error || 'error') + ')', false);
+    editingId = data.id;
+    $('#brandLogo').src = logoValue;
+    $('#editorTitle').textContent = 'Edit poll';
+    if (activate) {
+      const a = await fetch('/api/polls/' + editingId + '/activate', { method: 'POST' });
+      flash(a.ok ? 'Saved & on screen — press Start on the big screen.' : 'Saved, but could not put on screen', a.ok);
     } else {
-      flash('Could not save (' + (data.error || 'error') + ')', false);
+      flash('Saved to library.', true);
     }
+    await refreshList();
+    $('#editingActive').classList.toggle('hidden', editingId !== activeLiveId);
   } catch {
     flash('Could not save — is the server running?', false);
   } finally {
     $('#saveBtn').disabled = false;
+    $('#saveActivateBtn').disabled = false;
   }
+}
+
+async function activatePoll(id) {
+  if (!confirm('Put this poll on screen now? It resets that poll’s votes and switches the big screen.')) return;
+  const res = await fetch('/api/polls/' + id + '/activate', { method: 'POST' });
+  if (!res.ok) return flash('Could not put on screen', false);
+  flash('On screen — press Start on the big screen.', true);
+  await refreshList();
+  $('#editingActive').classList.toggle('hidden', editingId !== activeLiveId);
+}
+
+async function deletePoll(id) {
+  if (!confirm('Delete this poll from the library?')) return;
+  const res = await fetch('/api/polls/' + id, { method: 'DELETE' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return flash(data.error === 'last_poll' ? 'Can’t delete the only poll' : 'Could not delete', false);
+  if (editingId === id) editingId = null;
+  const lib = await refreshList();
+  if (!editingId && lib.activeId) loadPoll(lib.activeId);
+}
+
+$('#newPollBtn').addEventListener('click', clearEditor);
+$('#saveActivateBtn').addEventListener('click', () => savePoll(true));
+makeSortable($('#pollList'), '.poll-item', saveLibraryOrder); // reorder the library
+$('#form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  savePoll(false);
 });
 
 // --- activity log ----------------------------------------------------------
@@ -399,9 +571,13 @@ async function fetchLog() {
 $('#logRefresh').addEventListener('click', fetchLog);
 
 async function init() {
-  await load();
+  const lib = await refreshList(); // populate the poll library list
+  // Start with the poll that's currently on screen loaded in the editor.
+  const startId = lib.activeId || (lib.polls[0] && lib.polls[0].id);
+  if (startId) await loadPoll(startId);
+  else clearEditor();
   fetchLog();
   setInterval(fetchLog, 5000); // keep the activity log live
 }
 
-init().catch(() => flash('Could not load current poll', false));
+init().catch(() => flash('Could not load the poll library', false));

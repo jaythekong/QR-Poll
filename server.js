@@ -64,6 +64,8 @@ function loadConfig() {
 }
 
 let poll;
+let library = []; // saved poll definitions (the "poll library")
+let activeId = null; // id of the library poll currently on screen
 // Poll lifecycle: 'standby' (not started — QR hidden) → 'open' (voting, clock
 // ticking) → 'closed'. The host starts it explicitly, open-ended or timed.
 let phase = 'standby';
@@ -154,6 +156,69 @@ function logChange(fromLabel, deviceId) {
 resetPoll(true); // seed from file; the DB (if any) overrides this on boot
 
 // ---------------------------------------------------------------------------
+// Poll library — save multiple polls and switch between them. Each entry is a
+// pristine definition (no vote counts); the live `poll` holds the running votes.
+// ---------------------------------------------------------------------------
+function genId() {
+  return 'p_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+// A poll definition (name + config, no votes) as stored in the library.
+function cleanDef(src) {
+  const opt = (o) => ({ label: String(o.label || ''), icon: o.icon ? String(o.icon) : '', end: !!o.end });
+  return {
+    logo: src.logo || '/logo.svg',
+    question: String(src.question || ''),
+    options: (src.options || []).map(opt),
+    followUps: (src.followUps || []).map((fu) => ({
+      question: String(fu.question || ''),
+      options: (fu.options || []).map(opt)
+    }))
+  };
+}
+function reviveDef(d) {
+  return { id: d.id || genId(), name: String(d.name || d.question || 'Poll'), ...cleanDef(d) };
+}
+
+// Make a library definition the live poll (fresh counts, back to standby).
+function applyDef(def) {
+  poll = {
+    logo: def.logo || '/logo.svg',
+    question: def.question || 'Cast your vote',
+    options: normalizeOptions(def.options),
+    followUps: (def.followUps || [])
+      .slice(0, MAX_FOLLOWUPS)
+      .map((fu) => ({
+        question: String(fu.question || ''),
+        options: normalizeOptions(fu.options).filter((o) => o.label)
+      }))
+      .filter((fu) => fu.question && fu.options.length >= 2)
+  };
+  deviceVotes.clear();
+  followVotes.clear();
+  pendingChange.clear();
+  clearCloseTimer();
+  phase = 'standby';
+  startedAt = null;
+  endsAt = null;
+}
+
+function pollSummary(p) {
+  return {
+    id: p.id,
+    name: p.name,
+    question: p.question,
+    options: p.options.length,
+    followUps: p.followUps.length,
+    active: p.id === activeId
+  };
+}
+
+// Seed the library with the current poll so there's always one entry.
+library.push({ id: genId(), name: poll.question || 'Poll', ...cleanDef(poll) });
+activeId = library[0].id;
+
+// ---------------------------------------------------------------------------
 // Persistence: the whole app state is serialized to / restored from the DB
 // (store.js). Saves are debounced so a burst of votes is one write.
 // ---------------------------------------------------------------------------
@@ -170,7 +235,9 @@ function reviveOption(o, i) {
 
 function serializeState() {
   return {
-    v: 1,
+    v: 2,
+    library,
+    activeId,
     config: { logo: poll.logo, question: poll.question, options: poll.options, followUps: poll.followUps },
     phase,
     startedAt,
@@ -202,6 +269,15 @@ function hydrateState(s) {
   sessions.length = 0;
   (s.sessions || []).forEach((x) => sessions.push(x));
   currentSession = [...sessions].reverse().find((x) => x.closed == null) || null;
+
+  // Poll library. Migrate a v1 state (no library) by seeding it from the config.
+  library = Array.isArray(s.library) && s.library.length ? s.library.map(reviveDef) : [];
+  activeId = s.activeId || null;
+  if (library.length === 0) {
+    library.push({ id: genId(), name: poll.question || 'Poll', ...cleanDef(poll) });
+    activeId = library[0].id;
+  }
+  if (!library.some((p) => p.id === activeId)) activeId = library[0] ? library[0].id : null;
 }
 
 let saveTimer = null;
@@ -311,6 +387,116 @@ app.get('/admin', (_req, res) =>
 // is DB-backed when persistence is on — so it reflects your latest save).
 app.get('/api/config', (_req, res) => {
   res.json(currentConfig());
+});
+
+// --- poll library ----------------------------------------------------------
+
+// Validate an incoming poll definition (question + ≥2 options; each follow-up
+// needs a question and ≥2 options). Returns { def } or { error }.
+function validateDef(body) {
+  const question = String((body && body.question) || '').trim();
+  const logo = String((body && body.logo) || '/logo.svg').trim() || '/logo.svg';
+  const options = cleanOptions(body && body.options);
+  if (!question) return { error: 'question_required' };
+  if (options.length < 2) return { error: 'need_two_options' };
+
+  const fuRaw = Array.isArray(body && body.followUps)
+    ? body.followUps
+    : body && body.followUp
+      ? [body.followUp]
+      : [];
+  const followUps = [];
+  for (const fu of fuRaw.slice(0, MAX_FOLLOWUPS)) {
+    const q = String((fu && fu.question) || '').trim();
+    const opts = cleanOptions(fu && fu.options);
+    if (!q && opts.length === 0) continue;
+    if (!q || opts.length < 2) return { error: 'followup_needs_question_and_two_options' };
+    followUps.push({ question: q, options: opts });
+  }
+  return { def: { logo, question, options, followUps } };
+}
+
+function pollName(body, def) {
+  return (String((body && body.name) || def.question).trim() || 'Poll').slice(0, 80);
+}
+
+app.get('/api/polls', (_req, res) => {
+  res.json({ activeId, polls: library.map(pollSummary) });
+});
+
+// Reorder the whole library to match a given list of ids (drag-and-drop).
+// Defined before "/:id" so "reorder" isn't captured as an id.
+app.post('/api/polls/reorder', (req, res) => {
+  const order = Array.isArray(req.body && req.body.order) ? req.body.order.map(String) : [];
+  const byId = new Map(library.map((p) => [p.id, p]));
+  const next = [];
+  for (const id of order) {
+    const p = byId.get(id);
+    if (p && !next.includes(p)) next.push(p);
+  }
+  for (const p of library) if (!next.includes(p)) next.push(p); // safety: keep any missing
+  if (next.length !== library.length) return res.status(400).json({ error: 'bad_order' });
+  library = next;
+  persist();
+  res.json({ ok: true });
+});
+
+app.get('/api/polls/:id', (req, res) => {
+  const p = library.find((x) => x.id === req.params.id);
+  if (!p) return res.status(404).json({ error: 'not_found' });
+  res.json(p);
+});
+
+// Duplicate a poll (inserted right after the original).
+app.post('/api/polls/:id/duplicate', (req, res) => {
+  const i = library.findIndex((x) => x.id === req.params.id);
+  if (i < 0) return res.status(404).json({ error: 'not_found' });
+  const src = library[i];
+  const copy = { ...reviveDef(src), id: genId(), name: (src.name + ' (copy)').slice(0, 80) };
+  library.splice(i + 1, 0, copy);
+  persist();
+  res.json({ ok: true, id: copy.id, poll: copy });
+});
+
+app.post('/api/polls', (req, res) => {
+  const { def, error } = validateDef(req.body);
+  if (error) return res.status(400).json({ error });
+  const entry = { id: genId(), name: pollName(req.body, def), ...def };
+  library.push(entry);
+  persist();
+  res.json({ ok: true, id: entry.id, poll: entry });
+});
+
+app.put('/api/polls/:id', (req, res) => {
+  const p = library.find((x) => x.id === req.params.id);
+  if (!p) return res.status(404).json({ error: 'not_found' });
+  const { def, error } = validateDef(req.body);
+  if (error) return res.status(400).json({ error });
+  Object.assign(p, { name: pollName(req.body, def), ...def });
+  persist();
+  res.json({ ok: true, id: p.id, poll: p });
+});
+
+app.delete('/api/polls/:id', (req, res) => {
+  const i = library.findIndex((x) => x.id === req.params.id);
+  if (i < 0) return res.status(404).json({ error: 'not_found' });
+  if (library.length === 1) return res.status(400).json({ error: 'last_poll' });
+  const [removed] = library.splice(i, 1);
+  if (activeId === removed.id) activeId = library[0].id;
+  persist();
+  res.json({ ok: true });
+});
+
+// Put a saved poll on screen: it becomes the live poll (votes reset, standby).
+app.post('/api/polls/:id/activate', (req, res) => {
+  const p = library.find((x) => x.id === req.params.id);
+  if (!p) return res.status(404).json({ error: 'not_found' });
+  closeSession(); // end any running session before switching
+  applyDef(p);
+  activeId = p.id;
+  broadcast();
+  persist();
+  res.json({ ok: true, id: p.id });
 });
 
 // Activity log for the admin view: voting sessions + vote changes. This is

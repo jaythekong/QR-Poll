@@ -43,7 +43,25 @@
       <p class="hint">The big screen (<a href="/" target="_blank">/</a>) only displays — start, close, and reset the poll from here.</p>
     </section>
 
+    <!-- Poll library -->
+    <section class="card lib-card">
+      <div class="lib-head">
+        <h2>Poll library</h2>
+        <button type="button" class="btn ghost" id="newPollBtn">+ New poll</button>
+      </div>
+      <p class="hint">Save several polls and switch between them. <b>Put on screen</b> makes one live (resets its votes).</p>
+      <div id="pollList" class="poll-list"></div>
+    </section>
+
     <form id="form" class="card">
+      <div class="editor-head">
+        <h2 id="editorTitle">Edit poll</h2>
+        <span class="editing-active hidden" id="editingActive">● on screen now</span>
+      </div>
+      <div class="field">
+        <label for="pollNameInput">Poll name <span class="muted">— for the library list</span></label>
+        <input type="text" id="pollNameInput" placeholder="e.g. AI tools survey" maxlength="80" />
+      </div>
       <!-- Poll logo + question -->
       <div class="field">
         <label>Poll logo</label>
@@ -59,7 +77,7 @@
       </div>
 
       <div class="field">
-        <label for="question">Poll name / question</label>
+        <label for="question">Question</label>
         <input type="text" id="question" placeholder="e.g. Which model do you prefer?" maxlength="160" />
       </div>
 
@@ -81,7 +99,8 @@
 
       <div class="actions-bar">
         <span class="save-msg" id="msg"></span>
-        <button type="submit" class="btn primary" id="saveBtn">Save poll</button>
+        <button type="button" class="btn ghost" id="saveActivateBtn">Save &amp; put on screen</button>
+        <button type="submit" class="btn primary" id="saveBtn">Save to library</button>
       </div>
     </form>
 
@@ -103,6 +122,7 @@
   <!-- Template for one option row -->
   <template id="optionTpl">
     <div class="option-row">
+      <span class="drag-handle" title="Drag to reorder">⠿</span>
       <button type="button" class="icon-btn" title="Set icon">
         <span class="icon-preview"></span>
       </button>
