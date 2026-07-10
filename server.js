@@ -7,6 +7,7 @@ const http = require('http');
 const express = require('express');
 const { Server } = require('socket.io');
 const QRCode = require('qrcode');
+const store = require('./store');
 
 const PORT = process.env.PORT || 3000;
 const CONFIG_PATH = path.join(__dirname, 'poll.config.json');
@@ -150,7 +151,76 @@ function logChange(fromLabel, deviceId) {
   pendingChange.set(deviceId, change);
 }
 
-resetPoll(true); // boots in standby — the host starts the poll explicitly
+resetPoll(true); // seed from file; the DB (if any) overrides this on boot
+
+// ---------------------------------------------------------------------------
+// Persistence: the whole app state is serialized to / restored from the DB
+// (store.js). Saves are debounced so a burst of votes is one write.
+// ---------------------------------------------------------------------------
+
+function reviveOption(o, i) {
+  return {
+    id: o && o.id != null ? String(o.id) : String(i),
+    label: String((o && o.label) || ''),
+    icon: o && o.icon ? String(o.icon) : '',
+    end: !!(o && o.end),
+    votes: Number(o && o.votes) || 0
+  };
+}
+
+function serializeState() {
+  return {
+    v: 1,
+    config: { logo: poll.logo, question: poll.question, options: poll.options, followUps: poll.followUps },
+    phase,
+    startedAt,
+    endsAt,
+    deviceVotes: [...deviceVotes],
+    followVotes: [...followVotes],
+    sessions
+  };
+}
+
+function hydrateState(s) {
+  const c = s.config || {};
+  poll = {
+    logo: c.logo || '/logo.svg',
+    question: c.question || 'Cast your vote',
+    options: (c.options || []).map(reviveOption),
+    followUps: (c.followUps || []).map((fu) => ({
+      question: String(fu.question || ''),
+      options: (fu.options || []).map(reviveOption)
+    }))
+  };
+  phase = s.phase || 'standby';
+  startedAt = s.startedAt || null;
+  endsAt = s.endsAt || null;
+  deviceVotes.clear();
+  (s.deviceVotes || []).forEach(([k, v]) => deviceVotes.set(k, v));
+  followVotes.clear();
+  (s.followVotes || []).forEach(([k, v]) => followVotes.set(k, v));
+  sessions.length = 0;
+  (s.sessions || []).forEach((x) => sessions.push(x));
+  currentSession = [...sessions].reverse().find((x) => x.closed == null) || null;
+}
+
+let saveTimer = null;
+let savePending = false;
+function persist() {
+  if (!store.enabled) return;
+  savePending = true;
+  if (saveTimer) return;
+  saveTimer = setTimeout(async () => {
+    saveTimer = null;
+    if (!savePending) return;
+    savePending = false;
+    try {
+      await store.save(serializeState());
+    } catch (e) {
+      console.error('  [db] save failed:', e.message);
+    }
+  }, 400);
+}
 
 function tallyBlock(question, options) {
   const total = options.reduce((sum, o) => sum + o.votes, 0);
@@ -237,13 +307,10 @@ app.get('/admin', (_req, res) =>
   res.sendFile(path.join(__dirname, 'public', 'admin.html'))
 );
 
-// Current poll config (raw), for populating the admin form.
+// Current poll config for populating the admin form (from live state, which
+// is DB-backed when persistence is on — so it reflects your latest save).
 app.get('/api/config', (_req, res) => {
-  try {
-    res.json(JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')));
-  } catch (err) {
-    res.status(500).json({ error: 'read_failed' });
-  }
+  res.json(currentConfig());
 });
 
 // Activity log for the admin view: voting sessions + vote changes. This is
@@ -326,6 +393,7 @@ app.post('/api/config', (req, res) => {
   startedAt = null;
   endsAt = null;
   broadcast();
+  persist();
   res.json({ ok: true, config: next });
 });
 
@@ -368,6 +436,51 @@ app.get('/api/qr', async (_req, res) => {
 
 function broadcast() {
   io.emit('state', publicState());
+}
+
+// Poll lifecycle helpers (module scope so boot can resume a running timer).
+function scheduleAutoClose() {
+  clearCloseTimer();
+  if (phase !== 'open' || !endsAt) return;
+  const rem = endsAt - Date.now();
+  if (rem <= 0) {
+    phase = 'closed';
+    closeSession();
+    return;
+  }
+  closeTimer = setTimeout(() => {
+    closeTimer = null;
+    if (phase === 'open') {
+      phase = 'closed';
+      closeSession();
+      broadcast();
+      persist();
+    }
+  }, rem);
+}
+
+function startPoll(durationSec) {
+  if (phase === 'open') return;
+  clearCloseTimer();
+  phase = 'open';
+  startedAt = Date.now();
+  const secs = Math.min(3600, Math.max(0, Number(durationSec) || 0));
+  endsAt = secs > 0 ? startedAt + secs * 1000 : null;
+  openSession(); // begin a new voting session
+  scheduleAutoClose();
+  broadcast();
+  persist();
+}
+
+// The current poll config (no vote counts) for the admin form.
+function currentConfig() {
+  const strip = (o) => ({ label: o.label, icon: o.icon, end: !!o.end });
+  return {
+    logo: poll.logo,
+    question: poll.question,
+    options: poll.options.map(strip),
+    followUps: poll.followUps.map((fu) => ({ question: fu.question, options: fu.options.map(strip) }))
+  };
 }
 
 // Live presence: how many phones are currently on the voter page.
@@ -422,6 +535,7 @@ io.on('connection', (socket) => {
     }
     reply({ ok: true, optionId: option.id });
     broadcast(); // F3 — live update to the big screen
+    persist();
   });
 
   // Voter answers one of the follow-up questions (after their main vote).
@@ -444,6 +558,7 @@ io.on('connection', (socket) => {
     if (currentSession) currentSession.fuCast += 1;
     reply({ ok: true, optionId: option.id });
     broadcast();
+    persist();
   });
 
   // Cancel a previous vote so the device can vote again. Changing a vote
@@ -474,38 +589,12 @@ io.on('connection', (socket) => {
     logChange(option ? option.label : String(prevId), deviceId);
     reply({ ok: true });
     broadcast();
+    persist();
   });
 
   // Host controls (F5) — open to everyone (internal tool, no passcode).
-
-  // Start voting: open-ended (duration 0/absent) or timed (duration seconds,
-  // auto-closes when the clock hits zero).
-  function startPoll(durationSec) {
-    if (phase === 'open') return;
-    clearCloseTimer();
-    phase = 'open';
-    startedAt = Date.now();
-    const secs = Math.min(3600, Math.max(0, Number(durationSec) || 0));
-    endsAt = secs > 0 ? startedAt + secs * 1000 : null;
-    openSession(); // begin a new voting session
-    if (endsAt) {
-      closeTimer = setTimeout(() => {
-        closeTimer = null;
-        if (phase === 'open') {
-          phase = 'closed';
-          closeSession();
-          broadcast();
-        }
-      }, endsAt - startedAt);
-    }
-    broadcast();
-  }
-
-  socket.on('host:start', (payload) => {
-    startPoll(payload && payload.duration);
-  });
-  // Back-compat alias (older host pages) — starts open-ended.
-  socket.on('host:open', () => startPoll(0));
+  socket.on('host:start', (payload) => startPoll(payload && payload.duration));
+  socket.on('host:open', () => startPoll(0)); // back-compat: open-ended
   socket.on('host:close', () => {
     if (phase === 'open') {
       phase = 'closed';
@@ -513,6 +602,7 @@ io.on('connection', (socket) => {
       closeSession(); // end the session, snapshotting its final tally
     }
     broadcast();
+    persist();
   });
   socket.on('host:reset', () => {
     closeSession(); // end the current session before clearing counts
@@ -523,13 +613,51 @@ io.on('connection', (socket) => {
     startedAt = null;
     endsAt = null;
     broadcast();
+    persist();
   });
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log('\n  Live QR Poll is running\n');
-  console.log(`  Host / big screen:  http://localhost:${PORT}/  (or ${PUBLIC_ORIGIN}/)`);
-  console.log(`  Voter page (QR):    ${VOTER_URL}`);
-  console.log('\n  No passcode — internal tool; admin & controls are open.');
-  console.log('\n  Open the host page on the projector. Phones scan the QR to vote.\n');
-});
+// Flush the latest state to the DB on shutdown (Render sends SIGTERM on
+// redeploy), so the last few votes before a restart aren't lost.
+async function flushAndExit() {
+  try {
+    if (store.enabled) await store.save(serializeState());
+  } catch (e) {
+    console.error('  [db] shutdown save failed:', e.message);
+  }
+  process.exit(0);
+}
+process.on('SIGTERM', flushAndExit);
+process.on('SIGINT', flushAndExit);
+
+// Boot: restore state from the DB (if configured), then start serving.
+(async () => {
+  let restored = false;
+  if (store.enabled) {
+    try {
+      const saved = await store.init();
+      if (saved && saved.config) {
+        hydrateState(saved);
+        scheduleAutoClose(); // resume a running timed poll, or close if it expired
+        restored = true;
+      } else {
+        persist(); // seed the DB with the file-based default
+      }
+    } catch (e) {
+      console.error('  [db] init failed — running in-memory only:', e.message);
+    }
+  }
+
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log('\n  Live QR Poll is running\n');
+    console.log(`  Host / big screen:  http://localhost:${PORT}/  (or ${PUBLIC_ORIGIN}/)`);
+    console.log(`  Voter page (QR):    ${VOTER_URL}`);
+    console.log('\n  No passcode — internal tool; admin & controls are open.');
+    if (store.enabled) {
+      console.log(`  Persistence:        DATABASE (Postgres) — ${restored ? 'state restored' : 'seeded fresh'}`);
+    } else {
+      console.log('  Persistence:        NONE (in-memory) — set DATABASE_URL to persist');
+    }
+    console.log('\n  Open the host page on the projector. Phones scan the QR to vote.\n');
+  });
+})();

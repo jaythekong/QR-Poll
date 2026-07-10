@@ -10,4 +10,10 @@ services:
     startCommand: npm start
     autoDeploy: true
     healthCheckPath: /
-    # No auth env vars — the app runs without a passcode (internal tool).
+    envVars:
+      # Postgres connection string (e.g. a Neon database). When set, votes,
+      # sessions and the poll config persist across restarts/redeploys. Leave
+      # unset to run purely in-memory. Set the value in the Render dashboard
+      # (Environment tab) — it's a secret, so it's not stored in the repo.
+      - key: DATABASE_URL
+        sync: false
